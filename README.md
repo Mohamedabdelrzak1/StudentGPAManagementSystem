@@ -1,303 +1,756 @@
-# Student GPA Management System - Web API
+# Student GPA Management System — Full Technical & Frontend Integration Guide
 
-A production-ready ASP.NET Core Web API built with **Clean Architecture** and **SQL Server** for managing student registration, course catalogs, semester enrollments, grading scales, and accurate **Semester GPA** & **Cumulative GPA** calculations.
+> **Production-ready ASP.NET Core Web API** built with **Clean Architecture**, **SQL Server**, and **Entity Framework Core**.  
+> This documentation provides complete API contracts, business rules, and step-by-step UI implementation specifications for building the frontend using **React** or **Next.js**.
 
 ---
 
 ## Table of Contents
-- [1. Architecture Overview](#1-architecture-overview)
-- [2. Technology Stack](#2-technology-stack)
-- [3. Business Rules & Calculations](#3-business-rules--calculations)
-- [4. Verification Example Results](#4-verification-example-results)
-- [5. API Endpoints](#5-api-endpoints)
-- [6. Database & Seed Data](#6-database--seed-data)
-- [7. Setup & Running Instructions](#7-setup--running-instructions)
-- [8. Running Unit Tests](#8-running-unit-tests)
-- [9. Assumptions & Design Decisions](#9-assumptions--design-decisions)
+1. [Backend Base Configuration](#1-backend-base-configuration)
+2. [Standard API Response Contract](#2-standard-api-response-contract)
+3. [Grading Scale & GPA Calculation Rules](#3-grading-scale--gpa-calculation-rules)
+4. [Verification Example Dataset](#4-verification-example-dataset)
+5. [Complete API Endpoints Reference](#5-complete-api-endpoints-reference)
+   - [Students API](#51-students-api)
+   - [Courses API](#52-courses-api)
+   - [Semesters API](#53-semesters-api)
+   - [Enrollments API](#54-enrollments-api)
+   - [Grading Scales API](#55-grading-scales-api)
+   - [GPA & Transcript API](#56-gpa--transcript-api)
+6. [Frontend Screen-by-Screen Implementation Guide (React / Next.js)](#6-frontend-screen-by-screen-implementation-guide-react--nextjs)
+   - [Screen 1: Students Management (`/students`)](#screen-1-students-management-students)
+   - [Screen 2: Courses Catalog (`/courses`)](#screen-2-courses-catalog-courses)
+   - [Screen 3: Academic Semesters (`/semesters`)](#screen-3-academic-semesters-semesters)
+   - [Screen 4: Course Registration & Enrollment (`/enrollments`)](#screen-4-course-registration--enrollment-enrollments)
+   - [Screen 5: Academic Transcript & GPA Dashboard (`/students/[id]/transcript`)](#screen-5-academic-transcript--gpa-dashboard-studentsidtranscript)
+7. [TypeScript Type Definitions (Ready to Copy-Paste)](#7-typescript-type-definitions-ready-to-copy-paste)
+8. [Database Seeding (Egyptian Sample Dataset)](#8-database-seeding-egyptian-sample-dataset)
+9. [Running the Application](#9-running-the-application)
 
 ---
 
-## 1. Architecture Overview
+## 1. Backend Base Configuration
 
-The solution strictly adheres to **Clean Architecture** principles and separation of concerns:
+- **Development Base URL (HTTP):** `http://localhost:5000`
+- **Development Base URL (HTTPS):** `https://localhost:7000`
+- **Swagger Documentation:** `http://localhost:5000/swagger`
+- **CORS Policy:** Enabled with `AllowAll` (supports `http://localhost:3000`, `http://localhost:5173`, etc.)
 
+---
+
+## 2. Standard API Response Contract
+
+Every endpoint in the system wraps its response in a uniform structure:
+
+```typescript
+export interface ApiResponse<T> {
+  statusCode: number;      // e.g. 200, 201, 400, 404, 409
+  succeeded: boolean;       // true on success, false on error
+  message?: string;         // Descriptive message in English
+  errors?: string[];        // Array of error messages (if any)
+  payload: T;               // Response data payload
+}
 ```
-StudentGPAManagementSystem/
-├── Core/
-│   ├── Domain/                 # Enterprise Business Rules, Entities (POCOs) & Enums
-│   │   ├── Models/             # Student, Course, Semester, Enrollment, GradingScale
-│   │   ├── Enums/              # EnrollmentStatus
-│   │   ├── Contracts/          # IGenericRepository, IUnitOfWork
-│   │   └── Exceptions/         # Domain-level exception definitions
-│   ├── ServiceAbstraction/     # Service interfaces (IStudentService, IGpaCalculatorService, etc.)
-│   └── Service/                # Application logic, Use Cases & AutoMapper Profiles
-│       └── MappingProfiles/    # StudentProfile, CourseProfile, SemesterProfile, EnrollmentProfile, GradingScaleProfile
-├── Infrastructure/
-│   ├── Persistence/            # EF Core DbContext, Fluent API Configurations, Migrations, Repositories
-│   │   ├── Data/Configurations # StudentConfiguration, CourseConfiguration, EnrollmentConfiguration, etc.
-│   │   ├── Migrations/         # EF Core Migration files
-│   │   └── Repositorys/        # GenericRepository, UnitOfWork
-│   └── Presentation/           # Controllers inheriting from BaseApiController
-├── Shared/                     # Common Response Wrapper (Response<T>), Error Models & Organized DTOs
-│   └── Dto/                    # DTOs segregated per entity/feature
-│       ├── Students/           # StudentDto, CreateStudentDto, UpdateStudentDto
-│       ├── Courses/            # CourseDto, CreateCourseDto, UpdateCourseDto
-│       ├── Semesters/          # SemesterDto, CreateSemesterDto, UpdateSemesterDto
-│       ├── Enrollments/        # EnrollmentDto, CreateEnrollmentDto, UpdateEnrollmentDto
-│       ├── GradingScales/      # GradingScaleDto
-│       └── Transcripts/        # TranscriptDto, SemesterTranscriptDto, CourseTranscriptDto, GpaResultDto, etc.
-├── StudentGPAManagementSystem.API/ # Web API Host, Middleware, Swagger, Dependency Injection
-└── Tests/
-    └── StudentGPAManagementSystem.Tests/ # xUnit test suite (21 automated tests)
+
+### Validation Error Response (HTTP 400):
+```json
+{
+  "statusCode": 400,
+  "errorMessage": "Validations Errors",
+  "errors": [
+    {
+      "field": "CreditHours",
+      "errors": ["Credit hours must be between 1 and 3."]
+    }
+  ]
+}
 ```
 
 ---
 
-## 2. Technology Stack
+## 3. Grading Scale & GPA Calculation Rules
 
-- **Framework:** .NET 10.0 (C# 13)
-- **Database:** Microsoft SQL Server
-- **ORM:** Entity Framework Core 10.0 (Code-First with Migrations & Fluent API)
-- **Object Mapping:** AutoMapper 17.0 with Mapping Profiles per entity
-- **Architecture:** Clean Architecture + Repository Pattern + Unit of Work
-- **API Documentation:** Swagger / OpenAPI via Swashbuckle
-- **Testing:** xUnit, EF Core In-Memory Database
+### 3.1 Dynamic Database-Driven Grading Scale
+The grading scale is stored in SQL Server and queried dynamically. Range rule: `FromGrade <= Score < ToGrade` (**inclusive lower bound, exclusive upper bound**):
 
----
+| FromGrade | ToGrade | Points | Grade | UI Badge Color | Description |
+|----------:|--------:|-------:|:------|:--------------|:------------|
+| 96.00 | 101.00 | 4.0 | **A+** | Emerald Green | Excellent / High Distinction ($96 \le \text{Score} < 101$) |
+| 92.00 | 96.00 | 3.7 | **A** | Green | Excellent ($92 \le \text{Score} < 96$) |
+| 88.00 | 92.00 | 3.4 | **A-** | Light Green | Very Good ($88 \le \text{Score} < 92$) |
+| 84.00 | 88.00 | 3.2 | **B+** | Blue | Very Good ($84 \le \text{Score} < 88$) |
+| 80.00 | 84.00 | 3.0 | **B** | Sky Blue | Good ($80 \le \text{Score} < 84$) |
+| 76.00 | 80.00 | 2.8 | **B-** | Cyan | Above Average ($76 \le \text{Score} < 80$) |
+| 72.00 | 76.00 | 2.6 | **C+** | Yellow | Average ($72 \le \text{Score} < 76$) |
+| 68.00 | 72.00 | 2.4 | **C** | Amber | Satisfactory ($68 \le \text{Score} < 72$) |
+| 64.00 | 68.00 | 2.2 | **C-** | Orange | Pass ($64 \le \text{Score} < 68$) |
+| 60.00 | 64.00 | 2.0 | **D+** | Deep Orange | Low Pass ($60 \le \text{Score} < 64$) |
+| 55.00 | 60.00 | 1.5 | **D** | Red-Orange | Minimum Pass ($55 \le \text{Score} < 60$) |
+| 50.00 | 55.00 | 1.0 | **D-** | Light Red | Marginal ($50 \le \text{Score} < 55$) |
+| 0.00 | 50.00 | 0.0 | **F** | Red | Fail ($0 \le \text{Score} < 50$) |
 
-## 3. Business Rules & Calculations
+### 3.2 Special Academic Statuses
+| Status | Code | Displayed Grade | Included in GPA? | Points Used | Hours in Denominator? | UI Badge Style |
+|:---|:---:|:---:|:---:|:---:|:---:|:---|
+| **Normal** | `Normal` | Letter (A+ to F) | **Yes** | From scale | **Yes** | Colored by grade |
+| **Absent** | `Absent` | **ABS** | **Yes** | `0.0` | **Yes** | Purple / Indigo badge |
+| **Withdrawn** | `Withdrawn` | **W** | **No** | `null` | **No** | Gray / Slate badge |
+| **Incomplete** | `Incomplete` | **I** | **No** | `null` | **No** | Amber / Warning badge |
 
-### 3.1 Course Management
-- Each course has between **1 and 3 credit hours** (enforced by Fluent API check constraint `CK_Courses_CreditHours` and Service validation).
-- Course Codes must be unique (`IX_Courses_Code`).
-
-### 3.2 18-Hour Semester Enrollment Limit
-- Maximum registered credit hours per student per semester is **18 hours**.
-- **Important:** All registered courses—**including Withdrawn (`W`) and Incomplete (`I`)**—count toward the 18-hour limit.
-- Prevent duplicate enrollment of the same course for the same student in the same semester.
-- Enrollment snapshots course credit hours at registration time.
-
-### 3.3 Dynamic Grading Scale (Database-Driven)
-The grading scale is stored in SQL Server table `GradingScales` and looked up dynamically:
-
-| FromGrade | ToGrade | Points | Grade | Rule |
-|----------:|--------:|-------:|:------|:-----|
-| 96.00 | 101.00 | 4.0 | A+ | $96 \le \text{Score} < 101$ |
-| 92.00 | 96.00 | 3.7 | A | $92 \le \text{Score} < 96$ |
-| 88.00 | 92.00 | 3.4 | A- | $88 \le \text{Score} < 92$ |
-| 84.00 | 88.00 | 3.2 | B+ | $84 \le \text{Score} < 88$ |
-| 80.00 | 84.00 | 3.0 | B | $80 \le \text{Score} < 84$ |
-| 76.00 | 80.00 | 2.8 | B- | $76 \le \text{Score} < 80$ |
-| 72.00 | 76.00 | 2.6 | C+ | $72 \le \text{Score} < 76$ |
-| 68.00 | 72.00 | 2.4 | C | $68 \le \text{Score} < 72$ |
-| 64.00 | 68.00 | 2.2 | C- | $64 \le \text{Score} < 68$ |
-| 60.00 | 64.00 | 2.0 | D+ | $60 \le \text{Score} < 64$ |
-| 55.00 | 60.00 | 1.5 | D | $55 \le \text{Score} < 60$ |
-| 50.00 | 55.00 | 1.0 | D- | $50 \le \text{Score} < 55$ |
-| 0.00 | 50.00 | 0.0 | F | $0 \le \text{Score} < 50$ |
-
-- Range rule: Lower bound is **inclusive**, upper bound is **exclusive** (`FromGrade <= Score < ToGrade`).
-  - Example: `96` yields `A+`, whereas `95.99` yields `A`.
-
-### 3.4 Special Academic Cases
-| Status | Displayed Grade | Included in GPA? | Points Used | Credit Hours in Denominator? |
-|:---|:---:|:---:|:---:|:---:|
-| **Normal** | A+ to F | Yes | From Grading Scale | Yes |
-| **Absent (ABS)** | ABS | Yes | 0.0 | Yes |
-| **Withdrawn (W)** | W | No | Excluded | Excluded |
-| **Incomplete (I)** | I | No | Excluded | Excluded |
-
-- **Mutual Exclusivity:** A course must have **either** a numeric score **or** a special academic status, never both.
-
-### 3.5 GPA Formulas
-- **Course Quality Points:** $\text{Grade Points} \times \text{Course Credit Hours}$
-- **Semester GPA:** $\frac{\sum \text{Eligible Quality Points in Semester}}{\sum \text{Eligible Credit Hours in Semester}}$
-- **Cumulative GPA:** $\frac{\sum \text{Eligible Quality Points Across All Semesters}}{\sum \text{Eligible Credit Hours Across All Semesters}}$
-- **Rounding:** Rounded to **two decimal places** using standard arithmetic midpoint rounding (`MidpointRounding.AwayFromZero`), keeping full decimal precision during intermediate steps.
-- **Division by Zero Protection:** When eligible hours equal 0, returns `null` with `"N/A"` display rather than dividing by zero.
+### 3.3 Core Formulas & Business Logic
+1. **Course Quality Points:**
+   $$\text{Quality Points} = \text{Grade Points} \times \text{Course Credit Hours}$$
+2. **Semester GPA:**
+   $$\text{Semester GPA} = \frac{\sum \text{Eligible Quality Points in Semester}}{\sum \text{Eligible Credit Hours in Semester}}$$
+3. **Cumulative GPA (Weighted Across All Semesters):**
+   $$\text{Cumulative GPA} = \frac{\sum \text{Eligible Quality Points Across All Semesters}}{\sum \text{Eligible Credit Hours Across All Semesters}}$$
+   > **Important:** Cumulative GPA is **weighted by credit hours**; it is **NOT** the arithmetic mean of semester GPAs!
+4. **18-Hour Semester Limit:**
+   - A student can enroll in a maximum of **18 credit hours per semester**.
+   - **All courses, including `W` (Withdrawn) and `I` (Incomplete), count towards this 18-hour enrollment ceiling.**
+5. **Mutual Exclusivity:**
+   - A course registration must have **either** a numeric score ($0-100$) **or** a special status (`Absent`, `Withdrawn`, `Incomplete`), never both.
+6. **Precision & Rounding:**
+   - Keep full precision during calculation steps.
+   - Display to **two decimal places** with arithmetic rounding (`MidpointRounding.AwayFromZero`).
+   - If eligible credit hours equal `0`, display `"N/A"` (avoiding division by zero).
 
 ---
 
-## 4. Verification Example Results
+## 4. Verification Example Dataset
 
-The system has been verified against the exact example from the technical assessment specification:
+The seeded student **أحمد محمد علي (STU001)** reflects the exact technical assessment benchmark:
 
-### Student: John Doe (STU001)
+### Semester 1: Fall 2024
+| Course | Name | Hours | Status / Score | Grade | Points | Quality Points | In GPA? |
+|:---|:---|:---:|:---|:---:|:---:|:---:|:---:|
+| `CS101` | Intro to Computer Science | 3 | Normal (90) | A- | 3.4 | 10.2 | Yes |
+| `MATH101` | Calculus I | 2 | Normal (85) | B+ | 3.2 | 6.4 | Yes |
+| `ENG101` | English Composition | 3 | Absent | ABS | 0.0 | 0.0 | Yes |
+| `PHY101` | General Physics I | 2 | Withdrawn | W | — | — | No |
+| `IT101` | IT Fundamentals | 3 | Incomplete | I | — | — | No |
+| **Total** | | **13 Reg. Hrs** | | | | **16.6 QP** / **8 Eligible Hrs** | **GPA: 2.08** |
 
-#### Semester 1 (Fall 2024):
-| Course | Credit Hours | Status / Score | Grade | Points | Quality Points | Included in GPA? |
-|:---|:---:|:---:|:---:|:---:|:---:|:---:|
-| CS101 | 3 | Normal (90) | A- | 3.4 | 10.2 | Yes |
-| MATH101 | 2 | Normal (85) | B+ | 3.2 | 6.4 | Yes |
-| ENG101 | 3 | Absent | ABS | 0.0 | 0.0 | Yes |
-| PHY101 | 2 | Withdrawn | W | - | - | No |
-| IT101 | 3 | Incomplete | I | - | - | No |
-| **Total** | **13 Registered** | - | - | - | **16.6 QP** / **8 Eligible Hrs** | **GPA = 2.08** |
+$$\text{Sem 1 GPA} = \frac{10.2 + 6.4 + 0.0}{3 + 2 + 3} = \frac{16.6}{8} = 2.075 \xrightarrow{\text{round}} \mathbf{2.08}$$
 
-$$\text{Semester 1 GPA} = \frac{10.2 + 6.4 + 0.0}{3 + 2 + 3} = \frac{16.6}{8} = 2.075 \xrightarrow{\text{round}} \mathbf{2.08}$$
+### Semester 2: Spring 2025
+| Course | Name | Hours | Status / Score | Grade | Points | Quality Points | In GPA? |
+|:---|:---|:---:|:---|:---:|:---:|:---:|:---:|
+| `CS102` | OOP | 3 | Normal (96) | A+ | 4.0 | 12.0 | Yes |
+| `MATH102` | Linear Algebra | 2 | Normal (70) | C | 2.4 | 4.8 | Yes |
+| **Total** | | **5 Reg. Hrs** | | | | **16.8 QP** / **5 Eligible Hrs** | **GPA: 3.36** |
 
-#### Semester 2 (Spring 2025):
-| Course | Credit Hours | Status / Score | Grade | Points | Quality Points | Included in GPA? |
-|:---|:---:|:---:|:---:|:---:|:---:|:---:|
-| CS102 | 3 | Normal (96) | A+ | 4.0 | 12.0 | Yes |
-| MATH102 | 2 | Normal (70) | C | 2.4 | 4.8 | Yes |
-| **Total** | **5 Registered** | - | - | - | **16.8 QP** / **5 Eligible Hrs** | **GPA = 3.36** |
+$$\text{Sem 2 GPA} = \frac{12.0 + 4.8}{3 + 2} = \frac{16.8}{5} = \mathbf{3.36}$$
 
-$$\text{Semester 2 GPA} = \frac{12.0 + 4.8}{3 + 2} = \frac{16.8}{5} = \mathbf{3.36}$$
-
-#### Cumulative GPA:
+### Cumulative Across All Semesters:
 $$\text{Cumulative GPA} = \frac{16.6 + 16.8}{8 + 5} = \frac{33.4}{13} = 2.56923... \xrightarrow{\text{round}} \mathbf{2.57}$$
 
-*(Note: Weighted cumulative GPA is 2.57, whereas the incorrect unweighted average $(2.08 + 3.36)/2 = 2.72$ is avoided).*
-
 ---
 
-## 5. API Endpoints
+## 5. Complete API Endpoints Reference
 
-All endpoints return a standardized response wrapper:
+### 5.1 Students API
+
+#### `GET /api/students`
+- **Description:** Retrieve all students ordered by code.
+- **Response:**
 ```json
 {
   "statusCode": 200,
   "succeeded": true,
-  "message": "Operation successful.",
-  "errors": [],
-  "payload": { ... }
+  "message": "Operation completed successfully.",
+  "payload": [
+    { "id": 1, "code": "STU001", "name": "أحمد محمد علي" },
+    { "id": 2, "code": "STU002", "name": "سارة محمود خليل" }
+  ]
 }
 ```
 
-### Students (`/api/students`)
-| Method | Endpoint | Description |
-|:---|:---|:---|
-| `GET` | `/api/students` | List all students |
-| `GET` | `/api/students/{id}` | Get student by ID |
-| `GET` | `/api/students/code/{code}` | Get student by unique code |
-| `POST` | `/api/students` | Create new student |
-| `PUT` | `/api/students/{id}` | Update student details |
-| `DELETE` | `/api/students/{id}` | Delete student |
-| `GET` | `/api/students/{id}/gpa` | **Calculate Semester & Cumulative GPA** |
-| `GET` | `/api/students/{id}/transcript` | **Get full academic transcript** |
+#### `GET /api/students/{id}`
+- **Description:** Retrieve a single student by numeric ID.
 
-### Courses (`/api/courses`)
-| Method | Endpoint | Description |
-|:---|:---|:---|
-| `GET` | `/api/courses` | List all courses |
-| `GET` | `/api/courses/{id}` | Get course by ID |
-| `GET` | `/api/courses/code/{code}` | Get course by code |
-| `POST` | `/api/courses` | Create course (1-3 credit hours) |
-| `PUT` | `/api/courses/{id}` | Update course |
-| `DELETE` | `/api/courses/{id}` | Delete course |
+#### `GET /api/students/code/{code}`
+- **Description:** Retrieve a single student by unique student code.
 
-### Semesters (`/api/semesters`)
-| Method | Endpoint | Description |
-|:---|:---|:---|
-| `GET` | `/api/semesters` | List all semesters |
-| `GET` | `/api/semesters/{id}` | Get semester by ID |
-| `POST` | `/api/semesters` | Create semester |
-| `PUT` | `/api/semesters/{id}` | Update semester |
-| `DELETE` | `/api/semesters/{id}` | Delete semester |
-
-### Enrollments (`/api/enrollments`)
-| Method | Endpoint | Description |
-|:---|:---|:---|
-| `GET` | `/api/enrollments` | List enrollments (supports `?studentId=&semesterId=`) |
-| `GET` | `/api/enrollments/{id}` | Get enrollment by ID |
-| `POST` | `/api/enrollments` | Register course for student in semester |
-| `PUT` | `/api/enrollments/{id}` | Update score or academic status |
-| `DELETE` | `/api/enrollments/{id}` | Drop/delete enrollment |
-
-### Grading Scales (`/api/gradingscales`)
-| Method | Endpoint | Description |
-|:---|:---|:---|
-| `GET` | `/api/gradingscales` | List all grading scale ranges |
-| `GET` | `/api/gradingscales/resolve?score={score}` | Resolve score to letter grade and points |
-
----
-
-## 6. Database & Seed Data
-
-### Database Schema
-The database is structured with relational integrity and check constraints:
-- `Students` (Id, Code, Name, RowVersion)
-- `Courses` (Id, Code, Name, CreditHours [1-3])
-- `Semesters` (Id, Name, StartDate, EndDate)
-- `GradingScales` (Id, FromGrade, ToGrade, Points, Grade)
-- `Enrollments` (Id, StudentId, SemesterId, CourseId, CreditHours, Status, Score, GradingScaleId)
-
-### Seed Data
-Upon initial startup (`await dbContext.Database.MigrateAsync()`), the application seeds:
-1. **13 Grading Scales:** Exact scale from A+ (96-101) down to F (0-50).
-2. **2 Semesters:** `Fall 2024` and `Spring 2025`.
-3. **7 Courses:** CS101, MATH101, ENG101, PHY101, IT101, CS102, MATH102.
-4. **2 Students with Enrollments:**
-   - **John Doe (STU001):** Exact assessment verification dataset.
-   - **Sarah Smith (STU002):** Second student with multi-semester enrollments for additional testing.
-
----
-
-## 7. Setup & Running Instructions
-
-### Prerequisites
-- [.NET 10.0 SDK](https://dotnet.microsoft.com/download)
-- [Microsoft SQL Server](https://www.microsoft.com/sql-server/) (LocalDB, SQL Express, or standard SQL Server)
-
-### Step 1: Configure Connection String
-Open `StudentGPAManagementSystem.API/appsettings.json` and set your SQL Server connection:
+#### `POST /api/students`
+- **Description:** Create a new student.
+- **Request Body:**
 ```json
 {
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=.;Database=StudentGpaDb;Trusted_Connection=True;TrustServerCertificate=True;"
+  "code": "STU011",
+  "name": "محمود إبراهيم سعيد"
+}
+```
+- **Constraints:** `code` required (max 20), `name` required (max 150).
+
+#### `PUT /api/students/{id}`
+- **Description:** Update an existing student's name.
+- **Request Body:**
+```json
+{
+  "name": "محمود إبراهيم الشريف"
+}
+```
+
+#### `DELETE /api/students/{id}`
+- **Description:** Delete student (blocked with 400 if student has enrolled courses).
+
+---
+
+### 5.2 Courses API
+
+#### `GET /api/courses`
+- **Description:** Retrieve all courses.
+- **Response:**
+```json
+{
+  "statusCode": 200,
+  "succeeded": true,
+  "payload": [
+    { "id": 1, "code": "CS101", "name": "Introduction to Computer Science", "creditHours": 3 },
+    { "id": 11, "code": "MATH101", "name": "Calculus I", "creditHours": 2 }
+  ]
+}
+```
+
+#### `POST /api/courses`
+- **Description:** Create a course.
+- **Request Body:**
+```json
+{
+  "code": "CS501",
+  "name": "Deep Learning Systems",
+  "creditHours": 3
+}
+```
+- **Constraints:** `creditHours` must be **1, 2, or 3**. `code` must be unique.
+
+#### `PUT /api/courses/{id}`
+- **Description:** Update course name and/or credit hours.
+
+#### `DELETE /api/courses/{id}`
+- **Description:** Delete course (blocked with 400 if enrolled by any student).
+
+---
+
+### 5.3 Semesters API
+
+#### `GET /api/semesters`
+- **Description:** Retrieve all semesters ordered by Start Date.
+- **Response:**
+```json
+{
+  "statusCode": 200,
+  "succeeded": true,
+  "payload": [
+    { "id": 1, "name": "Fall 2024", "startDate": "2024-09-01", "endDate": "2025-01-15" },
+    { "id": 2, "name": "Spring 2025", "startDate": "2025-02-01", "endDate": "2025-06-15" }
+  ]
+}
+```
+
+#### `POST /api/semesters`
+- **Description:** Create a new semester.
+- **Request Body:**
+```json
+{
+  "name": "Fall 2025",
+  "startDate": "2025-09-01",
+  "endDate": "2026-01-15"
+}
+```
+- **Constraints:** `endDate` must be strictly greater than `startDate`.
+
+---
+
+### 5.4 Enrollments API
+
+#### `GET /api/enrollments?studentId={id}&semesterId={id}`
+- **Description:** List course enrollments with optional filtering by student or semester.
+- **Response:**
+```json
+{
+  "statusCode": 200,
+  "succeeded": true,
+  "payload": [
+    {
+      "id": 1,
+      "studentId": 1,
+      "studentCode": "STU001",
+      "studentName": "أحمد محمد علي",
+      "semesterId": 4,
+      "semesterName": "Fall 2024",
+      "courseId": 1,
+      "courseCode": "CS101",
+      "courseName": "Introduction to Computer Science",
+      "creditHours": 3,
+      "status": "Normal",
+      "score": 90.0,
+      "gradingScaleId": 3,
+      "grade": "A-",
+      "gradePoints": 3.4,
+      "qualityPoints": 10.2,
+      "includedInGpa": true
+    }
+  ]
+}
+```
+
+#### `POST /api/enrollments`
+- **Description:** Enroll a student in a course for a semester.
+- **Request Body (Normal Score):**
+```json
+{
+  "studentId": 1,
+  "semesterId": 4,
+  "courseId": 2,
+  "status": "Normal",
+  "score": 92.5
+}
+```
+- **Request Body (Special Status):**
+```json
+{
+  "studentId": 1,
+  "semesterId": 4,
+  "courseId": 15,
+  "status": "Withdrawn",
+  "score": null
+}
+```
+- **Supported `status` values:** `"Normal"`, `"Absent"`, `"Withdrawn"`, `"Incomplete"`.
+- **Validation Rules:**
+  - If `status == "Normal"`: `score` is required and must be between $0$ and $100$.
+  - If `status != "Normal"`: `score` must be `null`.
+  - Max 18 registered credit hours per student per semester.
+  - Duplicate enrollment in the same semester is rejected (HTTP 409).
+
+#### `PUT /api/enrollments/{id}`
+- **Description:** Update enrollment grade/score or status.
+- **Request Body:**
+```json
+{
+  "status": "Normal",
+  "score": 96.0
+}
+```
+
+#### `DELETE /api/enrollments/{id}`
+- **Description:** Drop/delete an enrollment.
+
+---
+
+### 5.5 Grading Scales API
+
+#### `GET /api/gradingscales`
+- **Description:** Retrieve all 13 grading scale ranges.
+
+#### `GET /api/gradingscales/resolve?score={score}`
+- **Description:** Real-time score resolution helper (ideal for UI live feedback).
+- **Example:** `GET /api/gradingscales/resolve?score=91.5`
+- **Response:**
+```json
+{
+  "statusCode": 200,
+  "succeeded": true,
+  "message": "Score '91.5' maps to grade 'A-' with 3.4 points.",
+  "payload": {
+    "id": 3,
+    "fromGrade": 88.0,
+    "toGrade": 92.0,
+    "points": 3.4,
+    "grade": "A-"
   }
 }
 ```
 
-### Step 2: Apply Migrations & Run
-From the root solution directory:
-```bash
-# Run the API application (migrations and seed data apply automatically on startup)
-dotnet run --project StudentGPAManagementSystem.API/StudentGPAManagementSystem.API.csproj
+---
+
+### 5.6 GPA & Transcript API
+
+#### `GET /api/students/{id}/gpa`
+- **Description:** Calculate student Semester GPA and Cumulative GPA.
+- **Response:**
+```json
+{
+  "statusCode": 200,
+  "succeeded": true,
+  "payload": {
+    "studentId": 1,
+    "studentCode": "STU001",
+    "studentName": "أحمد محمد علي",
+    "totalRegisteredHours": 18,
+    "totalGpaEligibleHours": 13,
+    "totalQualityPoints": 33.4,
+    "cumulativeGpa": 2.57,
+    "cumulativeGpaDisplay": "2.57",
+    "semesters": [
+      {
+        "semesterId": 4,
+        "semesterName": "Fall 2024",
+        "registeredHours": 13,
+        "gpaEligibleHours": 8,
+        "qualityPoints": 16.6,
+        "semesterGpa": 2.08,
+        "semesterGpaDisplay": "2.08"
+      },
+      {
+        "semesterId": 5,
+        "semesterName": "Spring 2025",
+        "registeredHours": 5,
+        "gpaEligibleHours": 5,
+        "qualityPoints": 16.8,
+        "semesterGpa": 3.36,
+        "semesterGpaDisplay": "3.36"
+      }
+    ]
+  }
+}
 ```
 
-### Step 3: Access Swagger UI
-Open your browser and navigate to:
-```
-http://localhost:5000/swagger
-```
-or
-```
-https://localhost:7000/swagger
+#### `GET /api/students/{id}/transcript`
+- **Description:** Get full academic transcript including all semesters, courses, scores, grades, and quality points.
+- **Response:**
+```json
+{
+  "statusCode": 200,
+  "succeeded": true,
+  "payload": {
+    "studentId": 1,
+    "studentCode": "STU001",
+    "studentName": "أحمد محمد علي",
+    "cumulativeGpa": 2.57,
+    "cumulativeGpaDisplay": "2.57",
+    "totalRegisteredHours": 18,
+    "totalGpaEligibleHours": 13,
+    "totalQualityPoints": 33.4,
+    "semesters": [
+      {
+        "semesterId": 4,
+        "semesterName": "Fall 2024",
+        "semesterGpa": 2.08,
+        "semesterGpaDisplay": "2.08",
+        "registeredHours": 13,
+        "gpaEligibleHours": 8,
+        "totalQualityPoints": 16.6,
+        "courses": [
+          {
+            "enrollmentId": 1,
+            "courseId": 1,
+            "courseCode": "CS101",
+            "courseName": "Introduction to Computer Science",
+            "creditHours": 3,
+            "status": "Normal",
+            "score": 90.0,
+            "displayedGrade": "A-",
+            "points": 3.4,
+            "qualityPoints": 10.2,
+            "includedInGpa": true
+          },
+          {
+            "enrollmentId": 3,
+            "courseId": 17,
+            "courseCode": "ENG101",
+            "courseName": "English Composition",
+            "creditHours": 3,
+            "status": "Absent",
+            "score": null,
+            "displayedGrade": "ABS",
+            "points": 0.0,
+            "qualityPoints": 0.0,
+            "includedInGpa": true
+          },
+          {
+            "enrollmentId": 4,
+            "courseId": 15,
+            "courseCode": "PHY101",
+            "courseName": "General Physics I",
+            "creditHours": 2,
+            "status": "Withdrawn",
+            "score": null,
+            "displayedGrade": "W",
+            "points": null,
+            "qualityPoints": null,
+            "includedInGpa": false
+          }
+        ]
+      }
+    ]
+  }
+}
 ```
 
 ---
 
-## 8. Running Unit Tests
+## 6. Frontend Screen-by-Screen Implementation Guide (React / Next.js)
 
-The test project `StudentGPAManagementSystem.Tests` contains **21 unit tests** validating:
-1. **Assessment Verification Match:** Exact match of the assessment verification data.
-2. **No Eligible Hours Case:** Handling when student has only `W` or `I` courses (returns `N/A`, prevents division by zero).
-3. **Full Transcript Generation:** Validates course breakdown, special statuses (`ABS`, `W`, `I`), and grade points.
-4. **AutoMapper Configuration Integrity:** Validates that AutoMapper profiles are registered and resolved cleanly.
-5. **18-Hour Semester Limit:** Enforcing limit including non-GPA courses.
-6. **Duplicate Enrollment Prevention:** Preventing registering the same course twice in one semester.
-7. **Grading Scale Boundaries:** 11 boundary tests ($100$, $96 \to A+$, $95.99 \to A$, $90 \to A-$, $85 \to B+$, $70 \to C$, $50 \to D-$, $49.99 \to F$, $0 \to F$).
-8. **Mutual Exclusivity:** Rejecting combinations of numeric scores with special statuses.
-9. **Credit Hours Validation:** Rejecting invalid hours ($0$, $4$, $-1$).
+### Screen 1: Students Management (`/students`)
+- **Key Features:**
+  - Data table displaying `Code`, `Name`, and Action buttons (`View Transcript`, `Calculate GPA`, `Edit`, `Delete`).
+  - Search input filtering in real time by Student Code or Name.
+  - "Add Student" Modal with validation:
+    - Code: required, alphanumeric, max 20 chars.
+    - Name: required, max 150 chars.
+  - Delete action with confirmation modal (handles backend rejection with friendly toast message if student has registered courses).
 
-Run all tests via CLI:
-```bash
-dotnet test
-```
+---
 
-Expected result:
-```
-Passed! - Failed: 0, Passed: 21, Skipped: 0, Total: 21
+### Screen 2: Courses Catalog (`/courses`)
+- **Key Features:**
+  - Table of all available courses (`Code`, `Name`, `Credit Hours`).
+  - Credit hours badge:
+    - 1 Credit Hour: Blue chip.
+    - 2 Credit Hours: Purple chip.
+    - 3 Credit Hours: Emerald chip.
+  - "Add Course" Modal:
+    - Course Code input (e.g. `CS201`).
+    - Course Name input.
+    - Credit Hours selector: Radio group or strict select ($1$, $2$, or $3$).
+
+---
+
+### Screen 3: Academic Semesters (`/semesters`)
+- **Key Features:**
+  - Cards or Timeline table of academic terms (`Name`, `Start Date`, `End Date`).
+  - "Add Semester" Modal:
+    - Term Name (e.g., `Fall 2025`, `Summer 2025`).
+    - Start Date & End Date pickers.
+    - Client-side validation: End Date must be after Start Date.
+
+---
+
+### Screen 4: Course Registration & Enrollment (`/enrollments`)
+- **Key UX Features:**
+  - **Student Selector & Semester Selector:** Filters the view to show current registrations for that student in that term.
+  - **Live 18-Hour Credit Meter:**
+    - Visual progress bar showing e.g. `13 / 18 Credit Hours Registered`.
+    - Shows remaining available hours (e.g. `5 hours remaining`).
+    - Disables selecting a course if its hours exceed remaining capacity.
+  - **Course Enrollment Form:**
+    1. Select Course from dropdown (displays credit hours badge next to course name).
+    2. Academic Status selector:
+       - Segmented Control or Radio Buttons: `[Normal Score] [Absent (ABS)] [Withdrawn (W)] [Incomplete (I)]`.
+       - If `Normal Score` is selected: Show numeric Score input ($0 - 100$).
+       - If `Normal Score`: Call `/api/gradingscales/resolve?score={value}` with a 300ms debounce to display a live pill showing predicted grade and grade points (e.g., `A- (3.4 points)`).
+       - If `Absent`, `Withdrawn`, or `Incomplete`: Automatically set `score = null` and disable the score input.
+
+---
+
+### Screen 5: Academic Transcript & GPA Dashboard (`/students/[id]/transcript`)
+- **Header Summary Card:**
+  - Student Name (Arabic/English), Code (`STU001`).
+  - **Cumulative GPA Banner:** Large badge displaying `2.57` (or `"N/A"`).
+  - Quick stats: Total Registered Hours (`18`), Total GPA-Eligible Hours (`13`), Total Quality Points (`33.4`).
+  - "Recalculate GPA" button with spinner.
+- **Semester Accordions:**
+  - Header displays: Semester Name, Semester GPA (e.g. `2.08`), Registered Hours, GPA Eligible Hours.
+  - Inside Accordion: Detailed table:
+    - Columns: `Course Code`, `Course Name`, `Hours`, `Score`, `Grade`, `Points`, `Quality Points`, `Status Badge`.
+    - Status badges:
+      - Normal: Grade badge with letter color.
+      - Absent: `ABS` badge + tooltip ("Counts in GPA as 0.0 points").
+      - Withdrawn: `W` badge + tooltip ("Excluded from GPA").
+      - Incomplete: `I` badge + tooltip ("Excluded from GPA").
+
+---
+
+## 7. TypeScript Type Definitions (Ready to Copy-Paste)
+
+```typescript
+// types/api.ts
+
+export interface ApiResponse<T> {
+  statusCode: number;
+  succeeded: boolean;
+  message?: string;
+  errors?: string[];
+  payload: T;
+}
+
+export interface StudentDto {
+  id: number;
+  code: string;
+  name: string;
+}
+
+export interface CreateStudentDto {
+  code: string;
+  name: string;
+}
+
+export interface UpdateStudentDto {
+  name: string;
+}
+
+export interface CourseDto {
+  id: number;
+  code: string;
+  name: string;
+  creditHours: 1 | 2 | 3;
+}
+
+export interface CreateCourseDto {
+  code: string;
+  name: string;
+  creditHours: number;
+}
+
+export interface SemesterDto {
+  id: number;
+  name: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string;   // YYYY-MM-DD
+}
+
+export type AcademicStatus = 'Normal' | 'Absent' | 'Withdrawn' | 'Incomplete';
+
+export interface EnrollmentDto {
+  id: number;
+  studentId: number;
+  studentCode: string;
+  studentName: string;
+  semesterId: number;
+  semesterName: string;
+  courseId: number;
+  courseCode: string;
+  courseName: string;
+  creditHours: number;
+  status: AcademicStatus;
+  score: number | null;
+  gradingScaleId: number | null;
+  grade: string | null;
+  gradePoints: number | null;
+  qualityPoints: number | null;
+  includedInGpa: boolean;
+}
+
+export interface CreateEnrollmentDto {
+  studentId: number;
+  semesterId: number;
+  courseId: number;
+  status: AcademicStatus;
+  score: number | null;
+}
+
+export interface UpdateEnrollmentDto {
+  status: AcademicStatus;
+  score: number | null;
+}
+
+export interface GradingScaleDto {
+  id: number;
+  fromGrade: number;
+  toGrade: number;
+  points: number;
+  grade: string;
+}
+
+export interface CourseTranscriptDto {
+  enrollmentId: number;
+  courseId: number;
+  courseCode: string;
+  courseName: string;
+  creditHours: number;
+  status: string;
+  score: number | null;
+  displayedGrade: string;
+  points: number | null;
+  qualityPoints: number | null;
+  includedInGpa: boolean;
+}
+
+export interface SemesterTranscriptDto {
+  semesterId: number;
+  semesterName: string;
+  semesterGpa: number | null;
+  semesterGpaDisplay: string;
+  registeredHours: number;
+  gpaEligibleHours: number;
+  totalQualityPoints: number;
+  courses: CourseTranscriptDto[];
+}
+
+export interface TranscriptDto {
+  studentId: number;
+  studentCode: string;
+  studentName: string;
+  cumulativeGpa: number | null;
+  cumulativeGpaDisplay: string;
+  totalRegisteredHours: number;
+  totalGpaEligibleHours: number;
+  totalQualityPoints: number;
+  semesters: SemesterTranscriptDto[];
+}
+
+export interface SemesterGpaSummaryDto {
+  semesterId: number;
+  semesterName: string;
+  semesterGpa: number | null;
+  semesterGpaDisplay: string;
+  registeredHours: number;
+  gpaEligibleHours: number;
+  qualityPoints: number;
+}
+
+export interface GpaResultDto {
+  studentId: number;
+  studentCode: string;
+  studentName: string;
+  cumulativeGpa: number | null;
+  cumulativeGpaDisplay: string;
+  totalRegisteredHours: number;
+  totalGpaEligibleHours: number;
+  totalQualityPoints: number;
+  semesters: SemesterGpaSummaryDto[];
+}
 ```
 
 ---
 
-## 9. Assumptions & Design Decisions
+## 8. Database Seeding (Egyptian Sample Dataset)
 
-1. **Course Retakes:** Per assessment guidance, each course is considered unique per semester; course retake grade replacement rules were omitted as specified.
-2. **Snapshot Credit Hours:** When a student enrolls in a course, the course's `CreditHours` is saved as a snapshot on the `Enrollment` record. This preserves historical academic accuracy even if a course catalog's credit hours are changed later.
-3. **Optimistic Concurrency:** A `RowVersion` timestamp token is placed on `Student` to safeguard concurrent enrollment operations.
-4. **Deletion Safety:** Foreign keys use `DeleteBehavior.Restrict` to protect against accidental cascade deletion of academic records.
-5. **Standardized Response:** Every API endpoint returns `Response<T>` containing HTTP status code, success flag, descriptive message, and payload.
+When launched, the system automatically runs database migrations and seeds comprehensive sample data:
+
+### 10 Students (Egyptian Names):
+1. **`STU001` - أحمد محمد علي**: Assessment verification student (Cumulative GPA: `2.57`).
+2. **`STU002` - سارة محمود خليل**: Honors student across 3 terms (Cumulative GPA: `3.82`).
+3. **`STU003` - عمر خالد عبد الرحمن**: High credit load student ($16$ hours registered in Fall 2024).
+4. **`STU004` - مريم طارق فؤاد**: Multi-semester student with `Withdrawn` and `Incomplete` courses.
+5. **`STU005` - يوسف إبراهيم حسن**: Upper-level student in advanced CS topics.
+6. **`STU006` - منى كمال الشناوي**: Consistent B+ student.
+7. **`STU007` - مصطفى أحمد النجار**: Student with an `Absent` course.
+8. **`STU008` - نورهان عادل منصور**: Freshman high-achiever ($99$, $97$, $94$).
+9. **`STU009` - زياد شريف الديب**: Senior student completing Graduation Capstone projects.
+10. **`STU010` - فاطمة حسن السعيد**: Computer science major with A/A- average.
+
+### 5 Semesters:
+- `Fall 2023`, `Spring 2024`, `Summer 2024`, `Fall 2024`, `Spring 2025`
+
+### 26 Courses:
+- Comprehensive curriculum across Computer Science, Mathematics, Physics, Engineering, IT, and Project Management (all compliant with $1 - 3$ credit hours).
+
+---
+
+## 9. Running the Application
+
+### Prerequisites:
+- [.NET 10.0 SDK](https://dotnet.microsoft.com/download)
+- Microsoft SQL Server (LocalDB, SQL Express, or standard instance)
+
+### Setup & Run:
+1. In `StudentGPAManagementSystem.API/appsettings.json`, set your connection string:
+   ```json
+   {
+     "ConnectionStrings": {
+       "DefaultConnection": "Server=.;Database=StudentGpaDb;Trusted_Connection=True;TrustServerCertificate=True;"
+     }
+   }
+   ```
+2. Start the API:
+   ```bash
+   dotnet run --project StudentGPAManagementSystem.API/StudentGPAManagementSystem.API.csproj
+   ```
+3. Open Swagger UI in browser:
+   ```
+   http://localhost:5000/swagger
+   ```
