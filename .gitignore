@@ -1,0 +1,29 @@
+## Visual Studio / VS Code / Rider
+.vs/
+.vscode/
+.idea/
+*.user
+*.userosscache
+*.suo
+*.userprefs
+*.dbmdl
+
+## Build results
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+## Test results
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+## OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+## Secrets & local configs
+appsettings.*.local.json

@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/Core/">
+    <Project Path="Core/Domain/Domain/Domain.csproj" />
+    <Project Path="Core/Service/Service/Service.csproj" />
+    <Project Path="Core/ServiceAbstraction/ServiceAbstraction/ServiceAbstraction.csproj" />
+  </Folder>
+  <Folder Name="/Infrastructure/">
+    <Project Path="Infrastructure/Persistence/Persistence.csproj" />
+    <Project Path="Infrastructure/Presentation/Presentation.csproj" Id="f9bfc3bd-6432-4671-b7b6-94caaca308c2" />
+  </Folder>
+  <Project Path="Shared/Shared.csproj" />
+  <Project Path="StudentGPAManagementSystem.API/StudentGPAManagementSystem.API.csproj" />
+  <Project Path="Tests/StudentGPAManagementSystem.Tests/StudentGPAManagementSystem.Tests.csproj" />
+</Solution>
