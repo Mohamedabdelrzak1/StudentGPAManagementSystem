@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
+using AutoMapper;
 using Domain.Contracts;
 using Domain.Models;
 using Microsoft.EntityFrameworkCore;
@@ -14,10 +15,12 @@ namespace Service;
 public class StudentService : IStudentService
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IMapper _mapper;
 
-    public StudentService(IUnitOfWork unitOfWork)
+    public StudentService(IUnitOfWork unitOfWork, IMapper mapper)
     {
         _unitOfWork = unitOfWork;
+        _mapper = mapper;
     }
 
     public async Task<Response<IEnumerable<StudentDto>>> GetAllStudentsAsync()
@@ -25,15 +28,10 @@ public class StudentService : IStudentService
         var repo = _unitOfWork.GetRepository<Student, int>();
         var students = await repo.GetAllQueryable()
             .OrderBy(s => s.Code)
-            .Select(s => new StudentDto
-            {
-                Id = s.Id,
-                Code = s.Code,
-                Name = s.Name
-            })
             .ToListAsync();
 
-        return Response<IEnumerable<StudentDto>>.Success(students);
+        var dtos = _mapper.Map<IEnumerable<StudentDto>>(students);
+        return Response<IEnumerable<StudentDto>>.Success(dtos);
     }
 
     public async Task<Response<StudentDto>> GetStudentByIdAsync(int id)
@@ -44,13 +42,7 @@ public class StudentService : IStudentService
         if (student == null)
             return Response<StudentDto>.Failure($"Student with ID '{id}' was not found.", HttpStatusCode.NotFound);
 
-        var dto = new StudentDto
-        {
-            Id = student.Id,
-            Code = student.Code,
-            Name = student.Name
-        };
-
+        var dto = _mapper.Map<StudentDto>(student);
         return Response<StudentDto>.Success(dto);
     }
 
@@ -63,13 +55,7 @@ public class StudentService : IStudentService
         if (student == null)
             return Response<StudentDto>.Failure($"Student with Code '{code}' was not found.", HttpStatusCode.NotFound);
 
-        var dto = new StudentDto
-        {
-            Id = student.Id,
-            Code = student.Code,
-            Name = student.Name
-        };
-
+        var dto = _mapper.Map<StudentDto>(student);
         return Response<StudentDto>.Success(dto);
     }
 
@@ -79,8 +65,6 @@ public class StudentService : IStudentService
             return Response<StudentDto>.Failure("Invalid student data.", HttpStatusCode.BadRequest);
 
         var code = dto.Code.Trim();
-        var name = dto.Name.Trim();
-
         var repo = _unitOfWork.GetRepository<Student, int>();
         var exists = await repo.GetAllQueryable()
             .AnyAsync(s => s.Code.ToUpper() == code.ToUpper());
@@ -88,22 +72,14 @@ public class StudentService : IStudentService
         if (exists)
             return Response<StudentDto>.Failure($"Student with Code '{code}' already exists.", HttpStatusCode.Conflict);
 
-        var student = new Student
-        {
-            Code = code,
-            Name = name
-        };
+        var student = _mapper.Map<Student>(dto);
+        student.Code = code;
+        student.Name = dto.Name.Trim();
 
         await repo.AddAsync(student);
         await _unitOfWork.SaveChangesAsync();
 
-        var resultDto = new StudentDto
-        {
-            Id = student.Id,
-            Code = student.Code,
-            Name = student.Name
-        };
-
+        var resultDto = _mapper.Map<StudentDto>(student);
         return Response<StudentDto>.Success(resultDto, "Student created successfully.", HttpStatusCode.Created);
     }
 
@@ -118,18 +94,13 @@ public class StudentService : IStudentService
         if (student == null)
             return Response<StudentDto>.Failure($"Student with ID '{id}' was not found.", HttpStatusCode.NotFound);
 
+        _mapper.Map(dto, student);
         student.Name = dto.Name.Trim();
 
         repo.Update(student);
         await _unitOfWork.SaveChangesAsync();
 
-        var resultDto = new StudentDto
-        {
-            Id = student.Id,
-            Code = student.Code,
-            Name = student.Name
-        };
-
+        var resultDto = _mapper.Map<StudentDto>(student);
         return Response<StudentDto>.Success(resultDto, "Student updated successfully.");
     }
 

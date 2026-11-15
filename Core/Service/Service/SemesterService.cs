@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
+using AutoMapper;
 using Domain.Contracts;
 using Domain.Models;
 using Microsoft.EntityFrameworkCore;
@@ -14,10 +15,12 @@ namespace Service;
 public class SemesterService : ISemesterService
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IMapper _mapper;
 
-    public SemesterService(IUnitOfWork unitOfWork)
+    public SemesterService(IUnitOfWork unitOfWork, IMapper mapper)
     {
         _unitOfWork = unitOfWork;
+        _mapper = mapper;
     }
 
     public async Task<Response<IEnumerable<SemesterDto>>> GetAllSemestersAsync()
@@ -25,16 +28,10 @@ public class SemesterService : ISemesterService
         var repo = _unitOfWork.GetRepository<Semester, int>();
         var semesters = await repo.GetAllQueryable()
             .OrderBy(s => s.StartDate)
-            .Select(s => new SemesterDto
-            {
-                Id = s.Id,
-                Name = s.Name,
-                StartDate = s.StartDate,
-                EndDate = s.EndDate
-            })
             .ToListAsync();
 
-        return Response<IEnumerable<SemesterDto>>.Success(semesters);
+        var dtos = _mapper.Map<IEnumerable<SemesterDto>>(semesters);
+        return Response<IEnumerable<SemesterDto>>.Success(dtos);
     }
 
     public async Task<Response<SemesterDto>> GetSemesterByIdAsync(int id)
@@ -45,14 +42,7 @@ public class SemesterService : ISemesterService
         if (semester == null)
             return Response<SemesterDto>.Failure($"Semester with ID '{id}' was not found.", HttpStatusCode.NotFound);
 
-        var dto = new SemesterDto
-        {
-            Id = semester.Id,
-            Name = semester.Name,
-            StartDate = semester.StartDate,
-            EndDate = semester.EndDate
-        };
-
+        var dto = _mapper.Map<SemesterDto>(semester);
         return Response<SemesterDto>.Success(dto);
     }
 
@@ -65,7 +55,6 @@ public class SemesterService : ISemesterService
             return Response<SemesterDto>.Failure("End date must be greater than start date.", HttpStatusCode.BadRequest);
 
         var name = dto.Name.Trim();
-
         var repo = _unitOfWork.GetRepository<Semester, int>();
         var exists = await repo.GetAllQueryable()
             .AnyAsync(s => s.Name.ToUpper() == name.ToUpper());
@@ -73,24 +62,15 @@ public class SemesterService : ISemesterService
         if (exists)
             return Response<SemesterDto>.Failure($"Semester with Name '{name}' already exists.", HttpStatusCode.Conflict);
 
-        var semester = new Semester
-        {
-            Name = name,
-            StartDate = dto.StartDate,
-            EndDate = dto.EndDate
-        };
+        var semester = _mapper.Map<Semester>(dto);
+        semester.Name = name;
+        semester.StartDate = dto.StartDate;
+        semester.EndDate = dto.EndDate;
 
         await repo.AddAsync(semester);
         await _unitOfWork.SaveChangesAsync();
 
-        var resultDto = new SemesterDto
-        {
-            Id = semester.Id,
-            Name = semester.Name,
-            StartDate = semester.StartDate,
-            EndDate = semester.EndDate
-        };
-
+        var resultDto = _mapper.Map<SemesterDto>(semester);
         return Response<SemesterDto>.Success(resultDto, "Semester created successfully.", HttpStatusCode.Created);
     }
 
@@ -115,6 +95,7 @@ public class SemesterService : ISemesterService
         if (duplicate)
             return Response<SemesterDto>.Failure($"Another semester with Name '{name}' already exists.", HttpStatusCode.Conflict);
 
+        _mapper.Map(dto, semester);
         semester.Name = name;
         semester.StartDate = dto.StartDate;
         semester.EndDate = dto.EndDate;
@@ -122,14 +103,7 @@ public class SemesterService : ISemesterService
         repo.Update(semester);
         await _unitOfWork.SaveChangesAsync();
 
-        var resultDto = new SemesterDto
-        {
-            Id = semester.Id,
-            Name = semester.Name,
-            StartDate = semester.StartDate,
-            EndDate = semester.EndDate
-        };
-
+        var resultDto = _mapper.Map<SemesterDto>(semester);
         return Response<SemesterDto>.Success(resultDto, "Semester updated successfully.");
     }
 

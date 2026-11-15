@@ -11,6 +11,6 @@ namespace Shared.ErrorModels
     {
         public int StatusCode { get; set; } = StatusCodes.Status400BadRequest;
         public string ErrorMessage { get; set; } = "Validations Errors";
-        public IEnumerable<ValidaionError> Errors { get; set; }
+        public IEnumerable<ValidaionError> Errors { get; set; } = Enumerable.Empty<ValidaionError>();
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using AutoMapper;
 using Domain.Contracts;
 using ServiceAbstraction;
 
@@ -13,14 +14,14 @@ public class ServiceManager : IServiceManager
     private readonly Lazy<IEnrollmentService> _enrollmentService;
     private readonly Lazy<IGpaCalculatorService> _gpaCalculatorService;
 
-    public ServiceManager(IUnitOfWork unitOfWork)
+    public ServiceManager(IUnitOfWork unitOfWork, IMapper mapper)
     {
-        _gradingScaleService = new Lazy<IGradingScaleService>(() => new GradingScaleService(unitOfWork));
-        _studentService = new Lazy<IStudentService>(() => new StudentService(unitOfWork));
-        _courseService = new Lazy<ICourseService>(() => new CourseService(unitOfWork));
-        _semesterService = new Lazy<ISemesterService>(() => new SemesterService(unitOfWork));
-        _enrollmentService = new Lazy<IEnrollmentService>(() => new EnrollmentService(unitOfWork, _gradingScaleService.Value));
-        _gpaCalculatorService = new Lazy<IGpaCalculatorService>(() => new GpaCalculatorService(unitOfWork));
+        _gradingScaleService = new Lazy<IGradingScaleService>(() => new GradingScaleService(unitOfWork, mapper));
+        _studentService = new Lazy<IStudentService>(() => new StudentService(unitOfWork, mapper));
+        _courseService = new Lazy<ICourseService>(() => new CourseService(unitOfWork, mapper));
+        _semesterService = new Lazy<ISemesterService>(() => new SemesterService(unitOfWork, mapper));
+        _enrollmentService = new Lazy<IEnrollmentService>(() => new EnrollmentService(unitOfWork, _gradingScaleService.Value, mapper));
+        _gpaCalculatorService = new Lazy<IGpaCalculatorService>(() => new GpaCalculatorService(unitOfWork, mapper));
     }
 
     public IStudentService StudentService => _studentService.Value;

@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
+using AutoMapper;
 using Domain.Contracts;
+using Domain.Enums;
 using Domain.Models;
 using Microsoft.EntityFrameworkCore;
 using ServiceAbstraction;
@@ -16,11 +18,13 @@ public class EnrollmentService : IEnrollmentService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly IGradingScaleService _gradingScaleService;
+    private readonly IMapper _mapper;
 
-    public EnrollmentService(IUnitOfWork unitOfWork, IGradingScaleService gradingScaleService)
+    public EnrollmentService(IUnitOfWork unitOfWork, IGradingScaleService gradingScaleService, IMapper mapper)
     {
         _unitOfWork = unitOfWork;
         _gradingScaleService = gradingScaleService;
+        _mapper = mapper;
     }
 
     public async Task<Response<IEnumerable<EnrollmentDto>>> GetAllEnrollmentsAsync(int? studentId = null, int? semesterId = null)
@@ -43,7 +47,7 @@ public class EnrollmentService : IEnrollmentService
             .ThenBy(e => e.Course.Code)
             .ToListAsync();
 
-        var dtos = list.Select(MapToDto).ToList();
+        var dtos = _mapper.Map<IEnumerable<EnrollmentDto>>(list);
 
         return Response<IEnumerable<EnrollmentDto>>.Success(dtos);
     }
@@ -61,7 +65,7 @@ public class EnrollmentService : IEnrollmentService
         if (enrollment == null)
             return Response<EnrollmentDto>.Failure($"Enrollment with ID '{id}' was not found.", HttpStatusCode.NotFound);
 
-        return Response<EnrollmentDto>.Success(MapToDto(enrollment));
+        return Response<EnrollmentDto>.Success(_mapper.Map<EnrollmentDto>(enrollment));
     }
 
     public async Task<Response<EnrollmentDto>> EnrollCourseAsync(CreateEnrollmentDto dto)
@@ -146,7 +150,7 @@ public class EnrollmentService : IEnrollmentService
             .Include(e => e.GradingScale)
             .FirstAsync(e => e.Id == enrollment.Id);
 
-        return Response<EnrollmentDto>.Success(MapToDto(saved), "Course enrolled successfully.", HttpStatusCode.Created);
+        return Response<EnrollmentDto>.Success(_mapper.Map<EnrollmentDto>(saved), "Course enrolled successfully.", HttpStatusCode.Created);
     }
 
     public async Task<Response<EnrollmentDto>> UpdateEnrollmentAsync(int id, UpdateEnrollmentDto dto)
@@ -195,7 +199,7 @@ public class EnrollmentService : IEnrollmentService
             .Include(e => e.GradingScale)
             .FirstAsync(e => e.Id == enrollment.Id);
 
-        return Response<EnrollmentDto>.Success(MapToDto(updated), "Enrollment updated successfully.");
+        return Response<EnrollmentDto>.Success(_mapper.Map<EnrollmentDto>(updated), "Enrollment updated successfully.");
     }
 
     public async Task<Response<bool>> DeleteEnrollmentAsync(int id)
@@ -247,66 +251,5 @@ public class EnrollmentService : IEnrollmentService
         }
 
         return (true, status, null);
-    }
-
-    public static EnrollmentDto MapToDto(Enrollment e)
-    {
-        string? grade = null;
-        decimal? gradePoints = null;
-        decimal? qualityPoints = null;
-        bool includedInGpa = false;
-
-        switch (e.Status)
-        {
-            case EnrollmentStatus.Normal:
-                includedInGpa = true;
-                grade = e.GradingScale?.Grade;
-                gradePoints = e.GradingScale?.Points;
-                if (gradePoints.HasValue)
-                    qualityPoints = gradePoints.Value * e.CreditHours;
-                break;
-
-            case EnrollmentStatus.Absent:
-                includedInGpa = true;
-                grade = "ABS";
-                gradePoints = 0.0m;
-                qualityPoints = 0.0m;
-                break;
-
-            case EnrollmentStatus.Withdrawn:
-                includedInGpa = false;
-                grade = "W";
-                gradePoints = null;
-                qualityPoints = null;
-                break;
-
-            case EnrollmentStatus.Incomplete:
-                includedInGpa = false;
-                grade = "I";
-                gradePoints = null;
-                qualityPoints = null;
-                break;
-        }
-
-        return new EnrollmentDto
-        {
-            Id = e.Id,
-            StudentId = e.StudentId,
-            StudentCode = e.Student?.Code ?? string.Empty,
-            StudentName = e.Student?.Name ?? string.Empty,
-            SemesterId = e.SemesterId,
-            SemesterName = e.Semester?.Name ?? string.Empty,
-            CourseId = e.CourseId,
-            CourseCode = e.Course?.Code ?? string.Empty,
-            CourseName = e.Course?.Name ?? string.Empty,
-            CreditHours = e.CreditHours,
-            Status = e.Status.ToString(),
-            Score = e.Score,
-            GradingScaleId = e.GradingScaleId,
-            Grade = grade,
-            GradePoints = gradePoints,
-            QualityPoints = qualityPoints,
-            IncludedInGpa = includedInGpa
-        };
     }
 }

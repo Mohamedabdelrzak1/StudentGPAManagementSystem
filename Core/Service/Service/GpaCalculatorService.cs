@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
+using AutoMapper;
 using Domain.Contracts;
+using Domain.Enums;
 using Domain.Models;
 using Microsoft.EntityFrameworkCore;
 using ServiceAbstraction;
@@ -15,10 +17,12 @@ namespace Service;
 public class GpaCalculatorService : IGpaCalculatorService
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IMapper _mapper;
 
-    public GpaCalculatorService(IUnitOfWork unitOfWork)
+    public GpaCalculatorService(IUnitOfWork unitOfWork, IMapper mapper)
     {
         _unitOfWork = unitOfWork;
+        _mapper = mapper;
     }
 
     public async Task<Response<GpaResultDto>> CalculateGpaAsync(int studentId)
@@ -159,65 +163,20 @@ public class GpaCalculatorService : IGpaCalculatorService
             {
                 semesterRegisteredHours += e.CreditHours;
 
-                string displayedGrade;
-                decimal? points = null;
-                decimal? qp = null;
-                bool includedInGpa = false;
-
-                switch (e.Status)
+                if (e.Status == EnrollmentStatus.Normal)
                 {
-                    case EnrollmentStatus.Normal:
-                        includedInGpa = true;
-                        displayedGrade = e.GradingScale?.Grade ?? string.Empty;
-                        points = e.GradingScale?.Points ?? 0m;
-                        qp = points.Value * e.CreditHours;
+                    decimal points = e.GradingScale?.Points ?? 0m;
+                    decimal qp = points * e.CreditHours;
 
-                        semesterEligibleHours += e.CreditHours;
-                        semesterQualityPoints += qp.Value;
-                        break;
-
-                    case EnrollmentStatus.Absent:
-                        includedInGpa = true;
-                        displayedGrade = "ABS";
-                        points = 0.0m;
-                        qp = 0.0m;
-
-                        semesterEligibleHours += e.CreditHours;
-                        break;
-
-                    case EnrollmentStatus.Withdrawn:
-                        includedInGpa = false;
-                        displayedGrade = "W";
-                        points = null;
-                        qp = null;
-                        break;
-
-                    case EnrollmentStatus.Incomplete:
-                        includedInGpa = false;
-                        displayedGrade = "I";
-                        points = null;
-                        qp = null;
-                        break;
-
-                    default:
-                        displayedGrade = e.Status.ToString();
-                        break;
+                    semesterEligibleHours += e.CreditHours;
+                    semesterQualityPoints += qp;
+                }
+                else if (e.Status == EnrollmentStatus.Absent)
+                {
+                    semesterEligibleHours += e.CreditHours;
                 }
 
-                courseTranscriptList.Add(new CourseTranscriptDto
-                {
-                    EnrollmentId = e.Id,
-                    CourseId = e.CourseId,
-                    CourseCode = e.Course?.Code ?? string.Empty,
-                    CourseName = e.Course?.Name ?? string.Empty,
-                    CreditHours = e.CreditHours,
-                    Status = e.Status.ToString(),
-                    Score = e.Score,
-                    DisplayedGrade = displayedGrade,
-                    Points = points,
-                    QualityPoints = qp,
-                    IncludedInGpa = includedInGpa
-                });
+                courseTranscriptList.Add(_mapper.Map<CourseTranscriptDto>(e));
             }
 
             decimal? semesterGpa = semesterEligibleHours > 0

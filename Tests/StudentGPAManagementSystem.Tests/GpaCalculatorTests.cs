@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Domain.Enums;
 using Domain.Models;
 using Microsoft.EntityFrameworkCore;
 using Persistence.Repositorys;
@@ -61,7 +62,8 @@ public class GpaCalculatorTests
         await context.Enrollments.AddRangeAsync(e1, e2, e3, e4, e5, e6, e7);
         await context.SaveChangesAsync();
 
-        var gpaService = new GpaCalculatorService(unitOfWork);
+        var mapper = TestDbContextHelper.CreateTestMapper();
+        var gpaService = new GpaCalculatorService(unitOfWork, mapper);
 
         // Act
         var result = await gpaService.CalculateGpaAsync(student.Id);
@@ -125,7 +127,8 @@ public class GpaCalculatorTests
         await context.Enrollments.AddAsync(enrollment);
         await context.SaveChangesAsync();
 
-        var gpaService = new GpaCalculatorService(unitOfWork);
+        var mapper = TestDbContextHelper.CreateTestMapper();
+        var gpaService = new GpaCalculatorService(unitOfWork, mapper);
 
         // Act
         var result = await gpaService.CalculateGpaAsync(student.Id);
@@ -173,7 +176,8 @@ public class GpaCalculatorTests
         await context.Enrollments.AddRangeAsync(e1, e2, e3, e4, e5);
         await context.SaveChangesAsync();
 
-        var gpaService = new GpaCalculatorService(unitOfWork);
+        var mapper = TestDbContextHelper.CreateTestMapper();
+        var gpaService = new GpaCalculatorService(unitOfWork, mapper);
 
         // Act
         var result = await gpaService.GetTranscriptAsync(student.Id);

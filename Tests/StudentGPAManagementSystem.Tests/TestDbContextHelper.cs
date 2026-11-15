@@ -1,13 +1,25 @@
 using System;
 using System.Threading.Tasks;
+using AutoMapper;
 using Domain.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Persistence.Data;
+using Service;
 
 namespace StudentGPAManagementSystem.Tests;
 
 public static class TestDbContextHelper
 {
+    public static IMapper CreateTestMapper()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddApplicationServices();
+        var provider = services.BuildServiceProvider();
+        return provider.GetRequiredService<IMapper>();
+    }
+
     public static async Task<StudentGpaDbContext> CreateInMemoryDbContextAsync(string dbName)
     {
         var options = new DbContextOptionsBuilder<StudentGpaDbContext>()

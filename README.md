@@ -24,22 +24,31 @@ The solution strictly adheres to **Clean Architecture** principles and separatio
 ```
 StudentGPAManagementSystem/
 ├── Core/
-│   ├── Domain/                 # Enterprise Business Rules & Entities (POCOs)
-│   │   ├── Models/             # Student, Course, Semester, Enrollment, GradingScale, EnrollmentStatus
+│   ├── Domain/                 # Enterprise Business Rules, Entities (POCOs) & Enums
+│   │   ├── Models/             # Student, Course, Semester, Enrollment, GradingScale
+│   │   ├── Enums/              # EnrollmentStatus
 │   │   ├── Contracts/          # IGenericRepository, IUnitOfWork
 │   │   └── Exceptions/         # Domain-level exception definitions
 │   ├── ServiceAbstraction/     # Service interfaces (IStudentService, IGpaCalculatorService, etc.)
-│   └── Service/                # Application logic & Use Cases (StudentService, GpaCalculatorService, etc.)
+│   └── Service/                # Application logic, Use Cases & AutoMapper Profiles
+│       └── MappingProfiles/    # StudentProfile, CourseProfile, SemesterProfile, EnrollmentProfile, GradingScaleProfile
 ├── Infrastructure/
 │   ├── Persistence/            # EF Core DbContext, Fluent API Configurations, Migrations, Repositories
 │   │   ├── Data/Configurations # StudentConfiguration, CourseConfiguration, EnrollmentConfiguration, etc.
 │   │   ├── Migrations/         # EF Core Migration files
 │   │   └── Repositorys/        # GenericRepository, UnitOfWork
 │   └── Presentation/           # Controllers inheriting from BaseApiController
-├── Shared/                     # DTOs, Common Response Wrapper (Response<T>), Error Models
+├── Shared/                     # Common Response Wrapper (Response<T>), Error Models & Organized DTOs
+│   └── Dto/                    # DTOs segregated per entity/feature
+│       ├── Students/           # StudentDto, CreateStudentDto, UpdateStudentDto
+│       ├── Courses/            # CourseDto, CreateCourseDto, UpdateCourseDto
+│       ├── Semesters/          # SemesterDto, CreateSemesterDto, UpdateSemesterDto
+│       ├── Enrollments/        # EnrollmentDto, CreateEnrollmentDto, UpdateEnrollmentDto
+│       ├── GradingScales/      # GradingScaleDto
+│       └── Transcripts/        # TranscriptDto, SemesterTranscriptDto, CourseTranscriptDto, GpaResultDto, etc.
 ├── StudentGPAManagementSystem.API/ # Web API Host, Middleware, Swagger, Dependency Injection
 └── Tests/
-    └── StudentGPAManagementSystem.Tests/ # xUnit test suite (20 automated tests)
+    └── StudentGPAManagementSystem.Tests/ # xUnit test suite (21 automated tests)
 ```
 
 ---
@@ -49,6 +58,7 @@ StudentGPAManagementSystem/
 - **Framework:** .NET 10.0 (C# 13)
 - **Database:** Microsoft SQL Server
 - **ORM:** Entity Framework Core 10.0 (Code-First with Migrations & Fluent API)
+- **Object Mapping:** AutoMapper 17.0 with Mapping Profiles per entity
 - **Architecture:** Clean Architecture + Repository Pattern + Unit of Work
 - **API Documentation:** Swagger / OpenAPI via Swashbuckle
 - **Testing:** xUnit, EF Core In-Memory Database
@@ -261,15 +271,16 @@ https://localhost:7000/swagger
 
 ## 8. Running Unit Tests
 
-The test project `StudentGPAManagementSystem.Tests` contains **20 unit tests** validating:
+The test project `StudentGPAManagementSystem.Tests` contains **21 unit tests** validating:
 1. **Assessment Verification Match:** Exact match of the assessment verification data.
 2. **No Eligible Hours Case:** Handling when student has only `W` or `I` courses (returns `N/A`, prevents division by zero).
 3. **Full Transcript Generation:** Validates course breakdown, special statuses (`ABS`, `W`, `I`), and grade points.
-4. **18-Hour Semester Limit:** Enforcing limit including non-GPA courses.
-5. **Duplicate Enrollment Prevention:** Preventing registering the same course twice in one semester.
-6. **Grading Scale Boundaries:** 11 boundary tests ($100$, $96 \to A+$, $95.99 \to A$, $90 \to A-$, $85 \to B+$, $70 \to C$, $50 \to D-$, $49.99 \to F$, $0 \to F$).
-7. **Mutual Exclusivity:** Rejecting combinations of numeric scores with special statuses.
-8. **Credit Hours Validation:** Rejecting invalid hours ($0$, $4$, $-1$).
+4. **AutoMapper Configuration Integrity:** Validates that AutoMapper profiles are registered and resolved cleanly.
+5. **18-Hour Semester Limit:** Enforcing limit including non-GPA courses.
+6. **Duplicate Enrollment Prevention:** Preventing registering the same course twice in one semester.
+7. **Grading Scale Boundaries:** 11 boundary tests ($100$, $96 \to A+$, $95.99 \to A$, $90 \to A-$, $85 \to B+$, $70 \to C$, $50 \to D-$, $49.99 \to F$, $0 \to F$).
+8. **Mutual Exclusivity:** Rejecting combinations of numeric scores with special statuses.
+9. **Credit Hours Validation:** Rejecting invalid hours ($0$, $4$, $-1$).
 
 Run all tests via CLI:
 ```bash
@@ -278,7 +289,7 @@ dotnet test
 
 Expected result:
 ```
-Passed! - Failed: 0, Passed: 20, Skipped: 0, Total: 20
+Passed! - Failed: 0, Passed: 21, Skipped: 0, Total: 21
 ```
 
 ---

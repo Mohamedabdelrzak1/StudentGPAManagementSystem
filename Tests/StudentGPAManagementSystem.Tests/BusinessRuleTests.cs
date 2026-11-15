@@ -16,8 +16,9 @@ public class BusinessRuleTests
         // Arrange
         var context = await TestDbContextHelper.CreateInMemoryDbContextAsync(nameof(EnrollCourse_Exceeding18HoursLimit_ReturnsBadRequest));
         var unitOfWork = new UnitOfWork(context);
-        var gradingScaleService = new GradingScaleService(unitOfWork);
-        var enrollmentService = new EnrollmentService(unitOfWork, gradingScaleService);
+        var mapper = TestDbContextHelper.CreateTestMapper();
+        var gradingScaleService = new GradingScaleService(unitOfWork, mapper);
+        var enrollmentService = new EnrollmentService(unitOfWork, gradingScaleService, mapper);
 
         var student = new Student { Code = "STU100", Name = "Limit Tester" };
         var semester = new Semester { Name = "Spring 2025", StartDate = new DateOnly(2025, 2, 1), EndDate = new DateOnly(2025, 6, 1) };
@@ -70,8 +71,9 @@ public class BusinessRuleTests
         // Arrange
         var context = await TestDbContextHelper.CreateInMemoryDbContextAsync(nameof(EnrollCourse_SameCourseTwiceInSameSemester_ReturnsConflict));
         var unitOfWork = new UnitOfWork(context);
-        var gradingScaleService = new GradingScaleService(unitOfWork);
-        var enrollmentService = new EnrollmentService(unitOfWork, gradingScaleService);
+        var mapper = TestDbContextHelper.CreateTestMapper();
+        var gradingScaleService = new GradingScaleService(unitOfWork, mapper);
+        var enrollmentService = new EnrollmentService(unitOfWork, gradingScaleService, mapper);
 
         var student = new Student { Code = "STU101", Name = "Duplicate Tester" };
         var semester = new Semester { Name = "Fall 2025", StartDate = new DateOnly(2025, 9, 1), EndDate = new DateOnly(2026, 1, 15) };
@@ -125,7 +127,8 @@ public class BusinessRuleTests
         // Arrange
         var context = await TestDbContextHelper.CreateInMemoryDbContextAsync($"GradingScale_{score}");
         var unitOfWork = new UnitOfWork(context);
-        var gradingScaleService = new GradingScaleService(unitOfWork);
+        var mapper = TestDbContextHelper.CreateTestMapper();
+        var gradingScaleService = new GradingScaleService(unitOfWork, mapper);
 
         // Act
         var result = await gradingScaleService.ResolveGradeAsync(score);
@@ -142,8 +145,9 @@ public class BusinessRuleTests
         // Arrange
         var context = await TestDbContextHelper.CreateInMemoryDbContextAsync(nameof(EnrollCourse_SpecialStatusWithScore_ReturnsBadRequest));
         var unitOfWork = new UnitOfWork(context);
-        var gradingScaleService = new GradingScaleService(unitOfWork);
-        var enrollmentService = new EnrollmentService(unitOfWork, gradingScaleService);
+        var mapper = TestDbContextHelper.CreateTestMapper();
+        var gradingScaleService = new GradingScaleService(unitOfWork, mapper);
+        var enrollmentService = new EnrollmentService(unitOfWork, gradingScaleService, mapper);
 
         var student = new Student { Code = "STU102", Name = "Status Tester" };
         var semester = new Semester { Name = "Spring 2026", StartDate = new DateOnly(2026, 2, 1), EndDate = new DateOnly(2026, 6, 1) };
@@ -178,7 +182,8 @@ public class BusinessRuleTests
         // Arrange
         var context = await TestDbContextHelper.CreateInMemoryDbContextAsync($"CourseCredit_{creditHours}");
         var unitOfWork = new UnitOfWork(context);
-        var courseService = new CourseService(unitOfWork);
+        var mapper = TestDbContextHelper.CreateTestMapper();
+        var courseService = new CourseService(unitOfWork, mapper);
 
         // Act
         var result = await courseService.CreateCourseAsync(new CreateCourseDto

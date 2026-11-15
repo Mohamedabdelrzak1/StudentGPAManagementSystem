@@ -8,8 +8,8 @@ namespace Shared.ErrorModels
 {
     public class ValidaionError
     {
-        public string Field { get; set; }
-        public IEnumerable<string> Errors { get; set; }
+        public string Field { get; set; } = string.Empty;
+        public IEnumerable<string> Errors { get; set; } = Enumerable.Empty<string>();
 
     }
 }
