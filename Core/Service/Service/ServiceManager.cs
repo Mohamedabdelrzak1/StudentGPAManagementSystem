@@ -13,6 +13,7 @@ public class ServiceManager : IServiceManager
     private readonly Lazy<IGradingScaleService> _gradingScaleService;
     private readonly Lazy<IEnrollmentService> _enrollmentService;
     private readonly Lazy<IGpaCalculatorService> _gpaCalculatorService;
+    private readonly Lazy<IDashboardService> _dashboardService;
 
     public ServiceManager(IUnitOfWork unitOfWork, IMapper mapper)
     {
@@ -22,6 +23,7 @@ public class ServiceManager : IServiceManager
         _semesterService = new Lazy<ISemesterService>(() => new SemesterService(unitOfWork, mapper));
         _enrollmentService = new Lazy<IEnrollmentService>(() => new EnrollmentService(unitOfWork, _gradingScaleService.Value, mapper));
         _gpaCalculatorService = new Lazy<IGpaCalculatorService>(() => new GpaCalculatorService(unitOfWork, mapper));
+        _dashboardService = new Lazy<IDashboardService>(() => new DashboardService(unitOfWork, mapper));
     }
 
     public IStudentService StudentService => _studentService.Value;
@@ -30,4 +32,5 @@ public class ServiceManager : IServiceManager
     public IGradingScaleService GradingScaleService => _gradingScaleService.Value;
     public IEnrollmentService EnrollmentService => _enrollmentService.Value;
     public IGpaCalculatorService GpaCalculatorService => _gpaCalculatorService.Value;
+    public IDashboardService DashboardService => _dashboardService.Value;
 }

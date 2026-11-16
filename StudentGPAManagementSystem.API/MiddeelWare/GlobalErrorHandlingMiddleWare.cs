@@ -1,9 +1,12 @@
 using System;
+using System.Collections.Generic;
+using System.Net;
 using System.Threading.Tasks;
 using Domain.Exceptions;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Shared.ErrorModels;
+using Shared.Common;
 
 namespace StudentGPAManagementSystem.API.MiddeelWare
 {
@@ -26,7 +29,6 @@ namespace StudentGPAManagementSystem.API.MiddeelWare
             {
                 await _next(context);
 
-                // Handle 404 endpoints
                 if (context.Response.StatusCode == StatusCodes.Status404NotFound
                     && !context.Response.HasStarted)
                 {
@@ -35,9 +37,7 @@ namespace StudentGPAManagementSystem.API.MiddeelWare
             }
             catch (Exception ex)
             {
-                // Log full error internally
                 _logger.LogError(ex, "Unhandled exception occurred: {Message}", ex.Message);
-
                 await HandleErrorAsync(context, ex);
             }
         }
@@ -46,21 +46,25 @@ namespace StudentGPAManagementSystem.API.MiddeelWare
         {
             context.Response.ContentType = "application/json";
 
-            var statusCode = ex switch
+            var (statusCode, message) = ex switch
             {
-                NotFoundExceptions => StatusCodes.Status404NotFound,
-                BadRequestException => StatusCodes.Status400BadRequest,
-                UnAuthorizedException => StatusCodes.Status401Unauthorized,
-                _ => StatusCodes.Status500InternalServerError,
+                NotFoundException or KeyNotFoundException =>
+                    (HttpStatusCode.NotFound, ex.Message),
+                BadRequestException or BusinessRuleException =>
+                    (HttpStatusCode.BadRequest, ex.Message),
+                ConflictException =>
+                    (HttpStatusCode.Conflict, ex.Message),
+                DbUpdateConcurrencyException =>
+                    (HttpStatusCode.Conflict, "A concurrency conflict occurred. The resource was modified by another operation. Please retry."),
+                UnAuthorizedException =>
+                    (HttpStatusCode.Unauthorized, ex.Message),
+                _ =>
+                    (HttpStatusCode.InternalServerError, "An unexpected server error occurred. Please try again later.")
             };
 
-            context.Response.StatusCode = statusCode;
+            context.Response.StatusCode = (int)statusCode;
 
-            var response = new ErrorDetails
-            {
-                StatusCode = statusCode,
-                ErrorMessage = ex.Message
-            };
+            var response = Response<object>.Failure(message, statusCode);
 
             await context.Response.WriteAsJsonAsync(response);
         }
@@ -70,11 +74,7 @@ namespace StudentGPAManagementSystem.API.MiddeelWare
             context.Response.ContentType = "application/json";
             context.Response.StatusCode = StatusCodes.Status404NotFound;
 
-            var response = new ErrorDetails
-            {
-                StatusCode = 404,
-                ErrorMessage = "Endpoint not found."
-            };
+            var response = Response<object>.Failure("Endpoint not found.", HttpStatusCode.NotFound);
 
             await context.Response.WriteAsJsonAsync(response);
         }

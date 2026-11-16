@@ -8,4 +8,5 @@ public interface IServiceManager
     IGradingScaleService GradingScaleService { get; }
     IEnrollmentService EnrollmentService { get; }
     IGpaCalculatorService GpaCalculatorService { get; }
+    IDashboardService DashboardService { get; }
 }

@@ -10,4 +10,5 @@
   </Folder>
   <Project Path="Shared/Shared.csproj" />
   <Project Path="StudentGPAManagementSystem.API/StudentGPAManagementSystem.API.csproj" />
+  <Project Path="Tests/StudentGPAManagementSystem.Tests/StudentGPAManagementSystem.Tests.csproj" />
 </Solution>

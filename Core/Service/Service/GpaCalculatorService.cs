@@ -14,6 +14,12 @@ using Shared.Dto;
 
 namespace Service;
 
+public record CourseGpaItem(int CreditHours, EnrollmentStatus Status, decimal? GradePoints);
+
+public record SemesterGpaCalculation(int RegisteredHours, int GpaEligibleHours, decimal QualityPoints, decimal? Gpa, string GpaDisplay);
+
+public record CumulativeGpaCalculation(int TotalRegisteredHours, int TotalGpaEligibleHours, decimal TotalQualityPoints, decimal? CumulativeGpa, string CumulativeGpaDisplay);
+
 public class GpaCalculatorService : IGpaCalculatorService
 {
     private readonly IUnitOfWork _unitOfWork;
@@ -24,6 +30,101 @@ public class GpaCalculatorService : IGpaCalculatorService
         _unitOfWork = unitOfWork;
         _mapper = mapper;
     }
+
+    public static SemesterGpaCalculation CalculateSemester(IEnumerable<CourseGpaItem> courses)
+    {
+        int registeredHours = 0;
+        int eligibleHours = 0;
+        decimal qualityPoints = 0m;
+
+        foreach (var c in courses)
+        {
+            registeredHours += c.CreditHours;
+
+            if (c.Status == EnrollmentStatus.Normal)
+            {
+                decimal points = c.GradePoints ?? 0m;
+                eligibleHours += c.CreditHours;
+                qualityPoints += points * c.CreditHours;
+            }
+            else if (c.Status == EnrollmentStatus.Absent)
+            {
+                eligibleHours += c.CreditHours;
+            }
+        }
+
+        decimal? gpa = eligibleHours > 0
+            ? Math.Round(qualityPoints / (decimal)eligibleHours, 2, MidpointRounding.AwayFromZero)
+            : null;
+
+        return new SemesterGpaCalculation(
+            registeredHours,
+            eligibleHours,
+            qualityPoints,
+            gpa,
+            FormatGpa(gpa));
+    }
+
+    public static CumulativeGpaCalculation CalculateCumulative(IEnumerable<SemesterGpaCalculation> semesterResults)
+    {
+        int totalRegistered = 0;
+        int totalEligible = 0;
+        decimal totalQualityPoints = 0m;
+
+        foreach (var s in semesterResults)
+        {
+            totalRegistered += s.RegisteredHours;
+            totalEligible += s.GpaEligibleHours;
+            totalQualityPoints += s.QualityPoints;
+        }
+
+        decimal? cumulativeGpa = totalEligible > 0
+            ? Math.Round(totalQualityPoints / (decimal)totalEligible, 2, MidpointRounding.AwayFromZero)
+            : null;
+
+        return new CumulativeGpaCalculation(
+            totalRegistered,
+            totalEligible,
+            totalQualityPoints,
+            cumulativeGpa,
+            FormatGpa(cumulativeGpa));
+    }
+
+    public static CumulativeGpaCalculation CalculateCumulative(IEnumerable<CourseGpaItem> allCourses)
+    {
+        int totalRegistered = 0;
+        int totalEligible = 0;
+        decimal totalQualityPoints = 0m;
+
+        foreach (var c in allCourses)
+        {
+            totalRegistered += c.CreditHours;
+
+            if (c.Status == EnrollmentStatus.Normal)
+            {
+                decimal points = c.GradePoints ?? 0m;
+                totalEligible += c.CreditHours;
+                totalQualityPoints += points * c.CreditHours;
+            }
+            else if (c.Status == EnrollmentStatus.Absent)
+            {
+                totalEligible += c.CreditHours;
+            }
+        }
+
+        decimal? cumulativeGpa = totalEligible > 0
+            ? Math.Round(totalQualityPoints / (decimal)totalEligible, 2, MidpointRounding.AwayFromZero)
+            : null;
+
+        return new CumulativeGpaCalculation(
+            totalRegistered,
+            totalEligible,
+            totalQualityPoints,
+            cumulativeGpa,
+            FormatGpa(cumulativeGpa));
+    }
+
+    public static string FormatGpa(decimal? gpa) => gpa.HasValue ? gpa.Value.ToString("0.00") : "N/A";
 
     public async Task<Response<GpaResultDto>> CalculateGpaAsync(int studentId)
     {
@@ -48,74 +149,44 @@ public class GpaCalculatorService : IGpaCalculatorService
             .ToList();
 
         var semesterSummaries = new List<SemesterGpaSummaryDto>();
-
-        decimal cumulativeQualityPoints = 0m;
-        int cumulativeEligibleHours = 0;
-        int cumulativeRegisteredHours = 0;
+        var allCourseItems = new List<CourseGpaItem>();
 
         foreach (var group in semesterGroups)
         {
-            int semesterRegisteredHours = 0;
-            int semesterEligibleHours = 0;
-            decimal semesterQualityPoints = 0m;
+            var semesterCourseItems = group.Select(e => new CourseGpaItem(
+                e.CreditHours,
+                e.Status,
+                e.GradingScale?.Points
+            )).ToList();
 
-            foreach (var e in group)
-            {
-                semesterRegisteredHours += e.CreditHours;
+            allCourseItems.AddRange(semesterCourseItems);
 
-                if (e.Status == EnrollmentStatus.Normal)
-                {
-                    decimal points = e.GradingScale?.Points ?? 0m;
-                    decimal qp = points * e.CreditHours;
-
-                    semesterEligibleHours += e.CreditHours;
-                    semesterQualityPoints += qp;
-                }
-                else if (e.Status == EnrollmentStatus.Absent)
-                {
-                    // Absent (ABS): The course counts toward GPA credit hours and contributes ZERO grade points.
-                    semesterEligibleHours += e.CreditHours;
-                    // Quality points are 0.0
-                }
-                // Withdrawn (W) and Incomplete (I) are excluded from both numerator and denominator
-            }
-
-            decimal? semesterGpa = semesterEligibleHours > 0
-                ? Math.Round(semesterQualityPoints / (decimal)semesterEligibleHours, 2, MidpointRounding.AwayFromZero)
-                : null;
-
-            cumulativeRegisteredHours += semesterRegisteredHours;
-            cumulativeEligibleHours += semesterEligibleHours;
-            cumulativeQualityPoints += semesterQualityPoints;
+            var semCalc = CalculateSemester(semesterCourseItems);
 
             semesterSummaries.Add(new SemesterGpaSummaryDto
             {
                 SemesterId = group.Key.SemesterId,
                 SemesterName = group.Key.Name,
-                RegisteredHours = semesterRegisteredHours,
-                GpaEligibleHours = semesterEligibleHours,
-                QualityPoints = semesterQualityPoints,
-                SemesterGpa = semesterGpa,
-                SemesterGpaDisplay = semesterGpa.HasValue ? semesterGpa.Value.ToString("0.00") : "N/A"
+                RegisteredHours = semCalc.RegisteredHours,
+                GpaEligibleHours = semCalc.GpaEligibleHours,
+                QualityPoints = semCalc.QualityPoints,
+                SemesterGpa = semCalc.Gpa,
+                SemesterGpaDisplay = semCalc.GpaDisplay
             });
         }
 
-        // Cumulative GPA = Sum of Eligible Quality Points Across All Semesters / Sum of Eligible Credit Hours Across All Semesters
-        // Weighted by credit hours, not arithmetic average of semester GPAs
-        decimal? cumulativeGpa = cumulativeEligibleHours > 0
-            ? Math.Round(cumulativeQualityPoints / (decimal)cumulativeEligibleHours, 2, MidpointRounding.AwayFromZero)
-            : null;
+        var cumulativeCalc = CalculateCumulative(allCourseItems);
 
         var result = new GpaResultDto
         {
             StudentId = student.Id,
             StudentCode = student.Code,
             StudentName = student.Name,
-            TotalRegisteredHours = cumulativeRegisteredHours,
-            TotalGpaEligibleHours = cumulativeEligibleHours,
-            TotalQualityPoints = cumulativeQualityPoints,
-            CumulativeGpa = cumulativeGpa,
-            CumulativeGpaDisplay = cumulativeGpa.HasValue ? cumulativeGpa.Value.ToString("0.00") : "N/A",
+            TotalRegisteredHours = cumulativeCalc.TotalRegisteredHours,
+            TotalGpaEligibleHours = cumulativeCalc.TotalGpaEligibleHours,
+            TotalQualityPoints = cumulativeCalc.TotalQualityPoints,
+            CumulativeGpa = cumulativeCalc.CumulativeGpa,
+            CumulativeGpaDisplay = cumulativeCalc.CumulativeGpaDisplay,
             Semesters = semesterSummaries
         };
 
@@ -146,74 +217,46 @@ public class GpaCalculatorService : IGpaCalculatorService
             .ToList();
 
         var semesterTranscriptList = new List<SemesterTranscriptDto>();
-
-        decimal cumulativeQualityPoints = 0m;
-        int cumulativeEligibleHours = 0;
-        int cumulativeRegisteredHours = 0;
+        var allCourseItems = new List<CourseGpaItem>();
 
         foreach (var group in semesterGroups)
         {
-            int semesterRegisteredHours = 0;
-            int semesterEligibleHours = 0;
-            decimal semesterQualityPoints = 0m;
+            var semesterCourseItems = group.Select(e => new CourseGpaItem(
+                e.CreditHours,
+                e.Status,
+                e.GradingScale?.Points
+            )).ToList();
 
-            var courseTranscriptList = new List<CourseTranscriptDto>();
+            allCourseItems.AddRange(semesterCourseItems);
 
-            foreach (var e in group)
-            {
-                semesterRegisteredHours += e.CreditHours;
-
-                if (e.Status == EnrollmentStatus.Normal)
-                {
-                    decimal points = e.GradingScale?.Points ?? 0m;
-                    decimal qp = points * e.CreditHours;
-
-                    semesterEligibleHours += e.CreditHours;
-                    semesterQualityPoints += qp;
-                }
-                else if (e.Status == EnrollmentStatus.Absent)
-                {
-                    semesterEligibleHours += e.CreditHours;
-                }
-
-                courseTranscriptList.Add(_mapper.Map<CourseTranscriptDto>(e));
-            }
-
-            decimal? semesterGpa = semesterEligibleHours > 0
-                ? Math.Round(semesterQualityPoints / (decimal)semesterEligibleHours, 2, MidpointRounding.AwayFromZero)
-                : null;
-
-            cumulativeRegisteredHours += semesterRegisteredHours;
-            cumulativeEligibleHours += semesterEligibleHours;
-            cumulativeQualityPoints += semesterQualityPoints;
+            var semCalc = CalculateSemester(semesterCourseItems);
+            var courseTranscriptList = group.Select(e => _mapper.Map<CourseTranscriptDto>(e)).ToList();
 
             semesterTranscriptList.Add(new SemesterTranscriptDto
             {
                 SemesterId = group.Key.SemesterId,
                 SemesterName = group.Key.Name,
-                RegisteredHours = semesterRegisteredHours,
-                GpaEligibleHours = semesterEligibleHours,
-                TotalQualityPoints = semesterQualityPoints,
-                SemesterGpa = semesterGpa,
-                SemesterGpaDisplay = semesterGpa.HasValue ? semesterGpa.Value.ToString("0.00") : "N/A",
+                RegisteredHours = semCalc.RegisteredHours,
+                GpaEligibleHours = semCalc.GpaEligibleHours,
+                TotalQualityPoints = semCalc.QualityPoints,
+                SemesterGpa = semCalc.Gpa,
+                SemesterGpaDisplay = semCalc.GpaDisplay,
                 Courses = courseTranscriptList
             });
         }
 
-        decimal? cumulativeGpa = cumulativeEligibleHours > 0
-            ? Math.Round(cumulativeQualityPoints / (decimal)cumulativeEligibleHours, 2, MidpointRounding.AwayFromZero)
-            : null;
+        var cumulativeCalc = CalculateCumulative(allCourseItems);
 
         var transcript = new TranscriptDto
         {
             StudentId = student.Id,
             StudentCode = student.Code,
             StudentName = student.Name,
-            TotalRegisteredHours = cumulativeRegisteredHours,
-            TotalGpaEligibleHours = cumulativeEligibleHours,
-            TotalQualityPoints = cumulativeQualityPoints,
-            CumulativeGpa = cumulativeGpa,
-            CumulativeGpaDisplay = cumulativeGpa.HasValue ? cumulativeGpa.Value.ToString("0.00") : "N/A",
+            TotalRegisteredHours = cumulativeCalc.TotalRegisteredHours,
+            TotalGpaEligibleHours = cumulativeCalc.TotalGpaEligibleHours,
+            TotalQualityPoints = cumulativeCalc.TotalQualityPoints,
+            CumulativeGpa = cumulativeCalc.CumulativeGpa,
+            CumulativeGpaDisplay = cumulativeCalc.CumulativeGpaDisplay,
             Semesters = semesterTranscriptList
         };
 

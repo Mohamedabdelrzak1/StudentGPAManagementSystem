@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using AutoMapper;
 using Domain.Contracts;
 using Domain.Enums;
+using Domain.Exceptions;
 using Domain.Models;
 using Microsoft.EntityFrameworkCore;
 using ServiceAbstraction;
@@ -73,25 +74,21 @@ public class EnrollmentService : IEnrollmentService
         if (dto == null)
             return Response<EnrollmentDto>.Failure("Invalid enrollment data.", HttpStatusCode.BadRequest);
 
-        // 1. Verify Student exists
         var studentRepo = _unitOfWork.GetRepository<Student, int>();
         var student = await studentRepo.GetByIdAsync(dto.StudentId);
         if (student == null)
             return Response<EnrollmentDto>.Failure($"Student with ID '{dto.StudentId}' does not exist.", HttpStatusCode.NotFound);
 
-        // 2. Verify Semester exists
         var semesterRepo = _unitOfWork.GetRepository<Semester, int>();
         var semester = await semesterRepo.GetByIdAsync(dto.SemesterId);
         if (semester == null)
             return Response<EnrollmentDto>.Failure($"Semester with ID '{dto.SemesterId}' does not exist.", HttpStatusCode.NotFound);
 
-        // 3. Verify Course exists
         var courseRepo = _unitOfWork.GetRepository<Course, int>();
         var course = await courseRepo.GetByIdAsync(dto.CourseId);
         if (course == null)
             return Response<EnrollmentDto>.Failure($"Course with ID '{dto.CourseId}' does not exist.", HttpStatusCode.NotFound);
 
-        // 4. Check duplicate enrollment (Rule 3.4: same course cannot be registered twice for the same student in the same semester)
         var enrollmentRepo = _unitOfWork.GetRepository<Enrollment, int>();
         var isDuplicate = await enrollmentRepo.GetAllQueryable()
             .AnyAsync(e => e.StudentId == dto.StudentId && e.SemesterId == dto.SemesterId && e.CourseId == dto.CourseId);
@@ -99,20 +96,6 @@ public class EnrollmentService : IEnrollmentService
         if (isDuplicate)
             return Response<EnrollmentDto>.Failure($"Course '{course.Code}' is already registered for this student in semester '{semester.Name}'.", HttpStatusCode.Conflict);
 
-        // 5. Check 18-hour semester enrollment limit (Rule 3.4 & 3.5: All registered courses, including W and I, count toward the 18-hour limit)
-        var existingSemesterEnrollments = await enrollmentRepo.GetAllQueryable()
-            .Where(e => e.StudentId == dto.StudentId && e.SemesterId == dto.SemesterId)
-            .ToListAsync();
-
-        int currentRegisteredHours = existingSemesterEnrollments.Sum(e => e.CreditHours);
-        if (currentRegisteredHours + course.CreditHours > 18)
-        {
-            return Response<EnrollmentDto>.Failure(
-                $"Registering course '{course.Code}' ({course.CreditHours} credit hours) would exceed the maximum limit of 18 credit hours per semester. Current registered hours: {currentRegisteredHours}.",
-                HttpStatusCode.BadRequest);
-        }
-
-        // 6. Parse and validate Status & Score (Rule 3.5: course supports either a numeric score OR a special status, never both)
         var parseResult = ParseAndValidateStatusAndScore(dto.Status, dto.Score);
         if (!parseResult.IsValid)
             return Response<EnrollmentDto>.Failure(parseResult.ErrorMessage!, HttpStatusCode.BadRequest);
@@ -127,30 +110,60 @@ public class EnrollmentService : IEnrollmentService
             gradingScaleId = resolvedGrade.Id;
         }
 
-        // 7. Create Enrollment record (Rule 3.4: CreditHours snapshot copied from course at registration time)
-        var enrollment = new Enrollment
+        await _unitOfWork.BeginTransactionAsync();
+        try
         {
-            StudentId = dto.StudentId,
-            SemesterId = dto.SemesterId,
-            CourseId = dto.CourseId,
-            CreditHours = course.CreditHours,
-            Status = parseResult.Status,
-            Score = parseResult.Status == EnrollmentStatus.Normal ? dto.Score : null,
-            GradingScaleId = gradingScaleId
-        };
+            studentRepo.Update(student);
 
-        await enrollmentRepo.AddAsync(enrollment);
-        await _unitOfWork.SaveChangesAsync();
+            var existingSemesterEnrollments = await enrollmentRepo.GetAllQueryable()
+                .Where(e => e.StudentId == dto.StudentId && e.SemesterId == dto.SemesterId)
+                .ToListAsync();
 
-        // Reload with navigations to return full DTO
-        var saved = await enrollmentRepo.GetAllQueryable()
-            .Include(e => e.Student)
-            .Include(e => e.Semester)
-            .Include(e => e.Course)
-            .Include(e => e.GradingScale)
-            .FirstAsync(e => e.Id == enrollment.Id);
+            int currentRegisteredHours = existingSemesterEnrollments.Sum(e => e.CreditHours);
+            if (currentRegisteredHours + course.CreditHours > 18)
+            {
+                await _unitOfWork.RollbackTransactionAsync();
+                return Response<EnrollmentDto>.Failure(
+                    $"Registering course '{course.Code}' ({course.CreditHours} credit hours) would exceed the maximum limit of 18 credit hours per semester. Current registered hours: {currentRegisteredHours}.",
+                    HttpStatusCode.BadRequest);
+            }
 
-        return Response<EnrollmentDto>.Success(_mapper.Map<EnrollmentDto>(saved), "Course enrolled successfully.", HttpStatusCode.Created);
+            var enrollment = new Enrollment
+            {
+                StudentId = dto.StudentId,
+                SemesterId = dto.SemesterId,
+                CourseId = dto.CourseId,
+                CreditHours = course.CreditHours,
+                Status = parseResult.Status,
+                Score = parseResult.Status == EnrollmentStatus.Normal ? dto.Score : null,
+                GradingScaleId = gradingScaleId
+            };
+
+            await enrollmentRepo.AddAsync(enrollment);
+            await _unitOfWork.SaveChangesAsync();
+            await _unitOfWork.CommitTransactionAsync();
+
+            var saved = await enrollmentRepo.GetAllQueryable()
+                .Include(e => e.Student)
+                .Include(e => e.Semester)
+                .Include(e => e.Course)
+                .Include(e => e.GradingScale)
+                .FirstAsync(e => e.Id == enrollment.Id);
+
+            return Response<EnrollmentDto>.Success(_mapper.Map<EnrollmentDto>(saved), "Course enrolled successfully.", HttpStatusCode.Created);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await _unitOfWork.RollbackTransactionAsync();
+            return Response<EnrollmentDto>.Failure(
+                "A concurrency conflict occurred while registering the course. The student record was modified by another operation. Please retry.",
+                HttpStatusCode.Conflict);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
     }
 
     public async Task<Response<EnrollmentDto>> UpdateEnrollmentAsync(int id, UpdateEnrollmentDto dto)
@@ -169,7 +182,18 @@ public class EnrollmentService : IEnrollmentService
         if (enrollment == null)
             return Response<EnrollmentDto>.Failure($"Enrollment with ID '{id}' was not found.", HttpStatusCode.NotFound);
 
-        // Validate Status & Score
+        var otherSemesterEnrollments = await enrollmentRepo.GetAllQueryable()
+            .Where(e => e.StudentId == enrollment.StudentId && e.SemesterId == enrollment.SemesterId && e.Id != id)
+            .ToListAsync();
+
+        int otherHours = otherSemesterEnrollments.Sum(e => e.CreditHours);
+        if (otherHours + enrollment.CreditHours > 18)
+        {
+            return Response<EnrollmentDto>.Failure(
+                $"Updating enrollment would exceed the maximum limit of 18 credit hours per semester. Other registered hours: {otherHours}.",
+                HttpStatusCode.BadRequest);
+        }
+
         var parseResult = ParseAndValidateStatusAndScore(dto.Status, dto.Score);
         if (!parseResult.IsValid)
             return Response<EnrollmentDto>.Failure(parseResult.ErrorMessage!, HttpStatusCode.BadRequest);
@@ -191,7 +215,6 @@ public class EnrollmentService : IEnrollmentService
         enrollmentRepo.Update(enrollment);
         await _unitOfWork.SaveChangesAsync();
 
-        // Reload to refresh GradingScale navigation if changed
         var updated = await enrollmentRepo.GetAllQueryable()
             .Include(e => e.Student)
             .Include(e => e.Semester)
@@ -235,7 +258,6 @@ public class EnrollmentService : IEnrollmentService
                 return (false, status, $"Invalid academic status '{statusStr}'. Supported statuses are: Normal, Absent, Withdrawn, Incomplete.");
         }
 
-        // Rule: A registered course must have EITHER a numeric score OR a special status, not both.
         if (status == EnrollmentStatus.Normal)
         {
             if (!score.HasValue)

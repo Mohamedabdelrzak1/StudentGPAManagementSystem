@@ -21,7 +21,6 @@ public static class Extensions
         services.AddEndpointsApiExplorer();
         services.AddSwaggerService();
 
-        // CORS policy
         services.AddCors(options =>
         {
             options.AddPolicy("AllowAll", policy =>
@@ -32,27 +31,23 @@ public static class Extensions
             });
         });
 
-        // Clean Architecture Layers
         services.AddInfrastructureServices(configuration);
         services.AddApplicationServices();
 
-        // Model state validation response
         services.Configure<ApiBehaviorOptions>(config =>
         {
             config.InvalidModelStateResponseFactory = actionContext =>
             {
-                var errors = actionContext.ModelState
+                var validationErrors = actionContext.ModelState
                     .Where(m => m.Value?.Errors.Any() == true)
-                    .Select(m => new ValidaionError
+                    .Select(m => new Shared.Common.ValidationErrorDetail
                     {
                         Field = m.Key,
-                        Errors = m.Value!.Errors.Select(e => e.ErrorMessage)
-                    });
+                        Errors = m.Value!.Errors.Select(e => e.ErrorMessage).ToList()
+                    })
+                    .ToList();
 
-                var response = new ValidaionErrorResponse
-                {
-                    Errors = errors
-                };
+                var response = Shared.Common.Response<object>.ValidationFailure("One or more validation errors occurred.", validationErrors);
 
                 return new BadRequestObjectResult(response);
             };
@@ -81,7 +76,6 @@ public static class Extensions
 
         app.UseMiddleware<GlobalErrorHandlingMiddleWare>();
 
-        // Redirect root URL to swagger
         app.Use(async (context, next) =>
         {
             if (context.Request.Path == "/" || context.Request.Path == "")
@@ -109,11 +103,9 @@ public static class Extensions
         try
         {
             var dbContext = scope.ServiceProvider.GetRequiredService<StudentGpaDbContext>();
-            // Apply pending migrations (creates database if not exists)
             await dbContext.Database.MigrateAsync();
             logger.LogInformation("Database migrations applied successfully.");
 
-            // Seed sample data for testing (students, courses, semesters, sample enrollments)
             await DbInitializer.SeedSampleDataAsync(dbContext);
             logger.LogInformation("Sample data seeding completed successfully.");
         }

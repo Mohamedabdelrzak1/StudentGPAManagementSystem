@@ -40,6 +40,10 @@ namespace Persistence.Repositorys
 
         public async Task BeginTransactionAsync()
         {
+            if (_dbContext.Database.ProviderName?.Contains("InMemory", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return;
+            }
             _transaction = await _dbContext.Database.BeginTransactionAsync();
         }
 

@@ -10,9 +10,8 @@ public class CourseTranscriptDto
 
     public string Status { get; set; } = string.Empty;
     public decimal? Score { get; set; }
-
     public string DisplayedGrade { get; set; } = string.Empty;
-    public decimal? Points { get; set; }
+    public decimal? GradePoints { get; set; }
     public decimal? QualityPoints { get; set; }
     public bool IncludedInGpa { get; set; }
 }

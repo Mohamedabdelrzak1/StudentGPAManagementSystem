@@ -27,11 +27,25 @@ public class SemesterService : ISemesterService
     {
         var repo = _unitOfWork.GetRepository<Semester, int>();
         var semesters = await repo.GetAllQueryable()
-            .OrderBy(s => s.StartDate)
+            .OrderByDescending(s => s.StartDate)
+            .ThenByDescending(s => s.EndDate)
             .ToListAsync();
 
-        var dtos = _mapper.Map<IEnumerable<SemesterDto>>(semesters);
-        return Response<IEnumerable<SemesterDto>>.Success(dtos);
+        var studentCounts = await GetEnrolledStudentCountsAsync();
+        var currentSemesterId = semesters.FirstOrDefault()?.Id;
+        var dtos = _mapper.Map<List<SemesterDto>>(semesters);
+        foreach (var dto in dtos)
+        {
+            dto.IsCurrent = dto.Id == currentSemesterId;
+            dto.EnrolledStudentsCount = studentCounts.GetValueOrDefault(dto.Id);
+        }
+
+        var response = Response<IEnumerable<SemesterDto>>.Success(dtos);
+        response.TotalSemesters = dtos.Count;
+        response.CurrentSemester = dtos.FirstOrDefault(s => s.IsCurrent);
+        response.CompletedSemestersCount = Math.Max(0, dtos.Count - (response.CurrentSemester is null ? 0 : 1));
+
+        return response;
     }
 
     public async Task<Response<SemesterDto>> GetSemesterByIdAsync(int id)
@@ -43,6 +57,8 @@ public class SemesterService : ISemesterService
             return Response<SemesterDto>.Failure($"Semester with ID '{id}' was not found.", HttpStatusCode.NotFound);
 
         var dto = _mapper.Map<SemesterDto>(semester);
+        dto.IsCurrent = await IsCurrentSemesterAsync(semester.Id);
+        dto.EnrolledStudentsCount = await GetEnrolledStudentCountAsync(semester.Id);
         return Response<SemesterDto>.Success(dto);
     }
 
@@ -62,6 +78,9 @@ public class SemesterService : ISemesterService
         if (exists)
             return Response<SemesterDto>.Failure($"Semester with Name '{name}' already exists.", HttpStatusCode.Conflict);
 
+        if (await HasOverlappingSemesterAsync(repo.GetAllQueryable(), dto.StartDate, dto.EndDate))
+            return Response<SemesterDto>.Failure("Semester dates overlap with an existing semester.", HttpStatusCode.Conflict);
+
         var semester = _mapper.Map<Semester>(dto);
         semester.Name = name;
         semester.StartDate = dto.StartDate;
@@ -71,6 +90,8 @@ public class SemesterService : ISemesterService
         await _unitOfWork.SaveChangesAsync();
 
         var resultDto = _mapper.Map<SemesterDto>(semester);
+        resultDto.IsCurrent = true;
+        resultDto.EnrolledStudentsCount = 0;
         return Response<SemesterDto>.Success(resultDto, "Semester created successfully.", HttpStatusCode.Created);
     }
 
@@ -95,6 +116,14 @@ public class SemesterService : ISemesterService
         if (duplicate)
             return Response<SemesterDto>.Failure($"Another semester with Name '{name}' already exists.", HttpStatusCode.Conflict);
 
+        if (await HasOverlappingSemesterAsync(
+            repo.GetAllQueryable().Where(s => s.Id != id),
+            dto.StartDate,
+            dto.EndDate))
+        {
+            return Response<SemesterDto>.Failure("Semester dates overlap with an existing semester.", HttpStatusCode.Conflict);
+        }
+
         _mapper.Map(dto, semester);
         semester.Name = name;
         semester.StartDate = dto.StartDate;
@@ -104,7 +133,52 @@ public class SemesterService : ISemesterService
         await _unitOfWork.SaveChangesAsync();
 
         var resultDto = _mapper.Map<SemesterDto>(semester);
+        resultDto.IsCurrent = await IsCurrentSemesterAsync(semester.Id);
+        resultDto.EnrolledStudentsCount = await GetEnrolledStudentCountAsync(semester.Id);
         return Response<SemesterDto>.Success(resultDto, "Semester updated successfully.");
+    }
+
+    private async Task<Dictionary<int, int>> GetEnrolledStudentCountsAsync()
+    {
+        var enrollmentRepo = _unitOfWork.GetRepository<Enrollment, int>();
+        return await enrollmentRepo.GetAllQueryable()
+            .GroupBy(e => e.SemesterId)
+            .Select(g => new
+            {
+                SemesterId = g.Key,
+                StudentCount = g.Select(e => e.StudentId).Distinct().Count()
+            })
+            .ToDictionaryAsync(x => x.SemesterId, x => x.StudentCount);
+    }
+
+    private async Task<int> GetEnrolledStudentCountAsync(int semesterId)
+    {
+        var enrollmentRepo = _unitOfWork.GetRepository<Enrollment, int>();
+        return await enrollmentRepo.GetAllQueryable()
+            .Where(e => e.SemesterId == semesterId)
+            .Select(e => e.StudentId)
+            .Distinct()
+            .CountAsync();
+    }
+
+    private static Task<bool> HasOverlappingSemesterAsync(
+        IQueryable<Semester> semesters,
+        DateOnly startDate,
+        DateOnly endDate)
+    {
+        return semesters.AnyAsync(s => s.StartDate <= endDate && s.EndDate >= startDate);
+    }
+
+    private async Task<bool> IsCurrentSemesterAsync(int semesterId)
+    {
+        var repo = _unitOfWork.GetRepository<Semester, int>();
+        var latestSemesterId = await repo.GetAllQueryable()
+            .OrderByDescending(s => s.StartDate)
+            .ThenByDescending(s => s.EndDate)
+            .Select(s => (int?)s.Id)
+            .FirstOrDefaultAsync();
+
+        return latestSemesterId == semesterId;
     }
 
     public async Task<Response<bool>> DeleteSemesterAsync(int id)

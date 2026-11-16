@@ -41,8 +41,6 @@ public class GradingScaleService : IGradingScaleService
 
         var repo = _unitOfWork.GetRepository<GradingScale, int>();
 
-        // Range rule: FromGrade <= score < ToGrade
-        // Scale is stored in database and mapped dynamically
         var scale = await repo.GetAllQueryable()
             .Where(g => score >= g.FromGrade && score < g.ToGrade)
             .FirstOrDefaultAsync();

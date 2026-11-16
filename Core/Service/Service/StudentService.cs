@@ -30,7 +30,24 @@ public class StudentService : IStudentService
             .OrderBy(s => s.Code)
             .ToListAsync();
 
-        var dtos = _mapper.Map<IEnumerable<StudentDto>>(students);
+        var enrollmentRepo = _unitOfWork.GetRepository<Enrollment, int>();
+        var enrollments = await enrollmentRepo.GetAllQueryable()
+            .Include(e => e.GradingScale)
+            .ToListAsync();
+
+        var enrollmentsByStudent = enrollments
+            .GroupBy(e => e.StudentId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var dtos = new List<StudentDto>();
+        foreach (var student in students)
+        {
+            var dto = _mapper.Map<StudentDto>(student);
+            enrollmentsByStudent.TryGetValue(student.Id, out var studentEnrollments);
+            PopulateStudentAcademicStanding(dto, studentEnrollments);
+            dtos.Add(dto);
+        }
+
         return Response<IEnumerable<StudentDto>>.Success(dtos);
     }
 
@@ -43,6 +60,14 @@ public class StudentService : IStudentService
             return Response<StudentDto>.Failure($"Student with ID '{id}' was not found.", HttpStatusCode.NotFound);
 
         var dto = _mapper.Map<StudentDto>(student);
+
+        var enrollmentRepo = _unitOfWork.GetRepository<Enrollment, int>();
+        var studentEnrollments = await enrollmentRepo.GetAllQueryable()
+            .Where(e => e.StudentId == id)
+            .Include(e => e.GradingScale)
+            .ToListAsync();
+
+        PopulateStudentAcademicStanding(dto, studentEnrollments);
         return Response<StudentDto>.Success(dto);
     }
 
@@ -56,6 +81,14 @@ public class StudentService : IStudentService
             return Response<StudentDto>.Failure($"Student with Code '{code}' was not found.", HttpStatusCode.NotFound);
 
         var dto = _mapper.Map<StudentDto>(student);
+
+        var enrollmentRepo = _unitOfWork.GetRepository<Enrollment, int>();
+        var studentEnrollments = await enrollmentRepo.GetAllQueryable()
+            .Where(e => e.StudentId == student.Id)
+            .Include(e => e.GradingScale)
+            .ToListAsync();
+
+        PopulateStudentAcademicStanding(dto, studentEnrollments);
         return Response<StudentDto>.Success(dto);
     }
 
@@ -123,5 +156,41 @@ public class StudentService : IStudentService
         await _unitOfWork.SaveChangesAsync();
 
         return Response<bool>.Success(true, "Student deleted successfully.");
+    }
+
+    private static void PopulateStudentAcademicStanding(StudentDto dto, IEnumerable<Enrollment>? studentEnrollments)
+    {
+        dto.Major = "علوم الحاسب";
+
+        if (studentEnrollments != null && studentEnrollments.Any())
+        {
+            var courseItems = studentEnrollments.Select(e => new CourseGpaItem(
+                e.CreditHours,
+                e.Status,
+                e.GradingScale?.Points
+            )).ToList();
+
+            var calc = GpaCalculatorService.CalculateCumulative(courseItems);
+            dto.Gpa = calc.CumulativeGpa;
+
+            if (calc.CumulativeGpa.HasValue)
+            {
+                if (calc.CumulativeGpa.Value >= 3.50m)
+                    dto.Status = "متفوق";
+                else if (calc.CumulativeGpa.Value < 2.00m)
+                    dto.Status = "إنذار أكاديمي";
+                else
+                    dto.Status = "منتظم";
+            }
+            else
+            {
+                dto.Status = "منتظم";
+            }
+        }
+        else
+        {
+            dto.Gpa = null;
+            dto.Status = "منتظم";
+        }
     }
 }

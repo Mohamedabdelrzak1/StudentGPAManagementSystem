@@ -33,7 +33,6 @@ public class EnrollmentConfiguration : IEntityTypeConfiguration<Enrollment>
         builder.Property(e => e.GradingScaleId)
             .IsRequired(false);
 
-        // Relationships: Student/Semester/Course/GradingScale with HasOne/WithMany, FKs explicit, DeleteBehavior.Restrict on ALL
         builder.HasOne(e => e.Student)
             .WithMany(s => s.Enrollments)
             .HasForeignKey(e => e.StudentId)
@@ -54,12 +53,10 @@ public class EnrollmentConfiguration : IEntityTypeConfiguration<Enrollment>
             .HasForeignKey(e => e.GradingScaleId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // Unique composite index
         builder.HasIndex(e => new { e.StudentId, e.SemesterId, e.CourseId })
             .IsUnique()
             .HasDatabaseName("IX_Enrollments_Student_Semester_Course");
 
-        // Supporting non-unique indexes
         builder.HasIndex(e => new { e.StudentId, e.SemesterId })
             .HasDatabaseName("IX_Enrollments_StudentId_SemesterId");
 

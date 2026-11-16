@@ -6,6 +6,6 @@ namespace Domain.Models
 {
     public class BaseEntity<TKey>
     {
-        public TKey Id { get; set; } = default!; // PK
+        public TKey Id { get; set; } = default!;
     }
 }

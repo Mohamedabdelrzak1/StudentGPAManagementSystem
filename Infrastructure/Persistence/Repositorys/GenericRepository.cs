@@ -21,9 +21,6 @@ namespace Persistence.Repositorys
             _context = context;
         }
 
-        // =========================
-        // Get All
-        // =========================
         public async Task<IEnumerable<TEntity>> GetAllAsync(bool trackChanges = false)
         {
             IQueryable<TEntity> query = _context.Set<TEntity>();
@@ -33,66 +30,61 @@ namespace Persistence.Repositorys
                 : await query.AsNoTracking().ToListAsync();
         }
 
-        // =========================
-        // Get All IQueryable
-        // =========================
         public IQueryable<TEntity> GetAllQueryable(bool trackChanges = false)
         {
             IQueryable<TEntity> query = _context.Set<TEntity>();
             return trackChanges ? query : query.AsNoTracking();
         }
 
-        // =========================
-        // Get By Id
-        // =========================
         public async Task<TEntity?> GetByIdAsync(TKey id)
         {
             return await _context.Set<TEntity>().FindAsync(id);
         }
 
-        // =========================
-        // Add
-        // =========================
         public async Task AddAsync(TEntity entity)
         {
             await _context.Set<TEntity>().AddAsync(entity);
         }
 
-        // =========================
-        // Update
-        // =========================
         public void Update(TEntity entity)
         {
-            _context.Set<TEntity>().Update(entity);
+            var tracked = _context.Set<TEntity>().Local.FirstOrDefault(e => Equals(e.Id, entity.Id));
+            if (tracked != null)
+            {
+                if (!ReferenceEquals(tracked, entity))
+                {
+                    _context.Entry(tracked).CurrentValues.SetValues(entity);
+                }
+                _context.Entry(tracked).State = EntityState.Modified;
+                return;
+            }
+
+            var entry = _context.Entry(entity);
+            if (entry.State == EntityState.Detached)
+            {
+                _context.Set<TEntity>().Update(entity);
+            }
+            else
+            {
+                entry.State = EntityState.Modified;
+            }
         }
 
-        // =========================
-        // Delete
-        // =========================
         public void Delete(TEntity entity)
         {
             _context.Set<TEntity>().Remove(entity);
         }
 
-        // =========================
-        // Add Range
-        // =========================
         public async Task AddRangeAsync(IEnumerable<TEntity> entities)
         {
             await _context.Set<TEntity>().AddRangeAsync(entities);
         }
 
-        // =========================
-        // Delete Range
-        // =========================
         public void DeleteRange(IEnumerable<TEntity> entities)
         {
             _context.Set<TEntity>().RemoveRange(entities);
         }
 
-        // =========================
-        // Find With Predicate
-        // =========================
         public IQueryable<TEntity> FindByCondition(
             Expression<Func<TEntity, bool>> expression,
             bool trackChanges = false)
@@ -102,9 +94,6 @@ namespace Persistence.Repositorys
                 : _context.Set<TEntity>().AsNoTracking().Where(expression);
         }
 
-        // =========================
-        // First Or Default With Include
-        // =========================
         public async Task<TEntity?> GetFirstOrDefaultAsync(
             Expression<Func<TEntity, bool>> predicate,
             Func<IQueryable<TEntity>, IQueryable<TEntity>>? include = null,

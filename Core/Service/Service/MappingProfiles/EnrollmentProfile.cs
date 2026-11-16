@@ -27,7 +27,7 @@ public class EnrollmentProfile : Profile
             .ForMember(d => d.CourseName, opt => opt.MapFrom(s => s.Course != null ? s.Course.Name : string.Empty))
             .ForMember(d => d.Status, opt => opt.MapFrom(s => s.Status.ToString()))
             .ForMember(d => d.DisplayedGrade, opt => opt.MapFrom(s => ResolveGrade(s) ?? string.Empty))
-            .ForMember(d => d.Points, opt => opt.MapFrom(s => ResolveGradePoints(s)))
+            .ForMember(d => d.GradePoints, opt => opt.MapFrom(s => ResolveGradePoints(s)))
             .ForMember(d => d.QualityPoints, opt => opt.MapFrom(s => ResolveQualityPoints(s)))
             .ForMember(d => d.IncludedInGpa, opt => opt.MapFrom(s => s.Status == EnrollmentStatus.Normal || s.Status == EnrollmentStatus.Absent));
     }

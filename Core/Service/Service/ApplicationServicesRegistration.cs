@@ -16,6 +16,7 @@ public static class ApplicationServicesRegistration
         services.AddScoped<IGradingScaleService, GradingScaleService>();
         services.AddScoped<IEnrollmentService, EnrollmentService>();
         services.AddScoped<IGpaCalculatorService, GpaCalculatorService>();
+        services.AddScoped<IDashboardService, DashboardService>();
         services.AddScoped<IServiceManager, ServiceManager>();
 
         return services;
